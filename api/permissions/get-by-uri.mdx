@@ -1,0 +1,110 @@
+---
+title: "GET /api/v1/permission/getByNameUri — Find Permission by URI"
+sidebarTitle: "Get by URI"
+description: "Looks up a single permission by its nameUri query parameter. Useful for verifying whether a specific route permission exists in the system."
+---
+
+Finds and returns a permission record whose `nameUri` matches the supplied query parameter. The lookup is **case-insensitive** (backed by `LOWER()` in SQL), so `GET /api/v1/users` and `get /api/v1/users` resolve to the same record. If no match is found, a `404` is returned.
+
+This endpoint is useful when you need to check whether a route is already protected before calling [Register Permission](/api/permissions/register), or to retrieve the `idPermission` for use in [Assign Permission](/api/permissions/assign).
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. No specific role permission is needed.
+
+## Request
+
+**Method:** `GET`
+**Path:** `/api/v1/permission/getByNameUri`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+### Query Parameters
+
+<ParamField query="nameUri" type="string" required>
+  The route pattern to look up. Must be between **2 and 100 characters**. URL-encode any spaces as `%20` or `+`. Example: `GET%20/api/v1/users`.
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Returns the matching permission record.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The matched permission record.
+
+  <Expandable title="Permission object">
+    <ResponseField name="idPermission" type="number">
+      Unique numeric identifier for the permission.
+    </ResponseField>
+
+    <ResponseField name="nameUri" type="string">
+      The stored route pattern, exactly as it was registered.
+    </ResponseField>
+
+    <ResponseField name="description" type="string">
+      Human-readable description of what the permission grants.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Permiso obtenido por nombre.",
+  "data": {
+    "idPermission": 5,
+    "nameUri": "DELETE /api/v1/roles/:idRole",
+    "description": "Allows deleting a role by its numeric ID"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | `nameUri` is missing or fails the 2–100 character length constraint. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `404 Not Found` | No permission with the given `nameUri` exists in the system. |
+
+```json 404 Not Found
+{
+  "success": false,
+  "message": "El permiso 'DELETE /api/v1/roles/:idRole' no existe.",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL — URL-encoded nameUri
+curl -X GET \
+  -H "Authorization: Bearer <your_token>" \
+  "http://localhost:3000/api/v1/permission/getByNameUri?nameUri=DELETE%20%2Fapi%2Fv1%2Froles%2F%3AidRole"
+```
+
+```bash cURL — Using shell quoting
+curl -X GET \
+  -H "Authorization: Bearer <your_token>" \
+  --get \
+  --data-urlencode "nameUri=DELETE /api/v1/roles/:idRole" \
+  "http://localhost:3000/api/v1/permission/getByNameUri"
+```
+
+## Socket.IO Events
+
+This is a read-only endpoint. A `data:changed` broadcast is **not** emitted. The requesting client receives `operation:progress` events for the `permissions:fetchByUri` operation on their own socket only.

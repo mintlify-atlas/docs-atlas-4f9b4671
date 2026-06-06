@@ -1,0 +1,167 @@
+---
+title: "Authenticate with SEAM API Using JWT Tokens"
+sidebarTitle: "Authentication"
+description: "SEAM API uses JWT tokens for authentication. Learn how tokens are issued at login, verified by middleware, and passed in requests using the Authorization header."
+---
+
+Every protected endpoint in SEAM API requires a valid JSON Web Token (JWT). Tokens are issued when a user logs in, cryptographically signed with the server's `JWT_SECRET`, and carry enough information about the user so that no database round-trip is needed to identify who is making a request.
+
+## How tokens are issued
+
+Calling `POST /api/v1/auth/login` with valid credentials triggers the `auth.service.js` login function. After verifying the password with bcrypt, the service builds a payload and signs it:
+
+```js
+const payload = {
+  idUser:   user.idUser,
+  email:    user.email,
+  roleId:   user.roleId,
+  roleName: user.roleName,
+};
+const token = jwt.sign(payload, JWT.secret, { expiresIn: JWT.expiresIn });
+```
+
+`JWT.secret` reads from the `JWT_SECRET` environment variable, and `JWT.expiresIn` reads from `JWT_EXPIRES_IN` (defaults to `"1h"` when the variable is not set).
+
+The full login response contains the token alongside the expiry string, the user object, sidebar navigation items for the user's role, and the list of permission URIs the role can access:
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresIn": "1h",
+  "user": {
+    "idUser": 1,
+    "full_name": "Ana García",
+    "email": "ana@example.com",
+    "roleId": 2,
+    "roleName": "admin"
+  },
+  "sidebarItems": [...],
+  "permissions": [
+    "GET /api/v1/users",
+    "POST /api/v1/permission/register"
+  ]
+}
+```
+
+### Login request example
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "ana@example.com", "password": "secret123"}'
+```
+
+## The `req.user` payload
+
+Once `auth.middleware.js` verifies a token, it attaches the decoded payload to `req.user`. Every downstream middleware and controller can read it directly:
+
+```js
+// Shape of req.user after a successful token verification
+{
+  idUser:   1,
+  email:    "ana@example.com",
+  roleId:   2,
+  roleName: "admin",
+  iat:      1714000000,   // issued-at (Unix timestamp)
+  exp:      1714003600    // expiry (Unix timestamp)
+}
+```
+
+The middleware also writes `req.user.idUser` into the `AsyncLocalStorage` request context so that Socket.IO progress events can be routed to the correct user room without passing the ID through every function call.
+
+## Sending the token in HTTP requests
+
+Include the token in the `Authorization` header using the `Bearer` scheme:
+
+```bash
+curl http://localhost:3000/api/v1/users \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+The middleware extracts the token by splitting the header value on a space and taking the second segment:
+
+```js
+const token = req.headers.authorization?.split(' ')[1];
+```
+
+If the header is absent or the token is invalid, the request is rejected with a `401 Unauthorized` error before reaching the controller.
+
+## The `X-Socket-ID` header
+
+SEAM API emits real-time progress events over Socket.IO tied to the specific browser tab that initiated a request. To enable this, clients should include their current socket ID as a custom header on every authenticated HTTP request:
+
+```bash
+curl http://localhost:3000/api/v1/users \
+  -H "Authorization: Bearer <token>" \
+  -H "X-Socket-ID: abc123def456"
+```
+
+The `context.middleware.js` reads this header at the very start of each request and stores it in `AsyncLocalStorage`. The socket event helpers then emit `operation:progress` directly to that socket ID rather than to all sockets belonging to the user.
+
+```js
+// context.middleware.js — runs before every route
+const socketId = req.headers['x-socket-id'] ?? null;
+requestContext.run({ userId: null, socketId, currentOperation: null }, next);
+```
+
+## Socket.IO authentication
+
+Connecting to the Socket.IO server also requires a valid JWT. Pass the token in the `auth` object of the connection options:
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:3000', {
+  auth: { token: localStorage.getItem('token') },
+});
+```
+
+The server-side Socket.IO middleware verifies the token with the same `JWT_SECRET` used for HTTP requests. On success, `socket.user` is populated with the decoded payload and the socket is automatically joined to the user's private room (`user:{userId}`). If the token is missing or invalid, the connection attempt is rejected.
+
+```js
+// server.js — Socket.IO auth middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error('Token requerido para conectarse'));
+
+  try {
+    socket.user = jwt.verify(token, jwtConfig.secret);
+    next();
+  } catch {
+    next(new Error('Token inválido o expirado'));
+  }
+});
+```
+
+## How token verification works
+
+`auth.middleware.js` wraps `jwt.verify` in a try/catch. Any tampered, malformed, or expired token causes `jwt.verify` to throw, which the middleware converts into a `401 UnauthorizedError`:
+
+```js
+module.exports = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return next(new UnauthorizedError('Token requerido'));
+
+  try {
+    req.user = jwt.verify(token, JWT.secret);
+    const store = requestContext.getStore();
+    if (store) store.userId = req.user.idUser;
+    next();
+  } catch {
+    next(new UnauthorizedError('Token inválido o expirado'));
+  }
+};
+```
+
+<CardGroup cols={2}>
+  <Card title="Token missing" icon="circle-xmark">
+    Returns `401 Unauthorized` — `"Token requerido"`
+  </Card>
+  <Card title="Token invalid or expired" icon="triangle-exclamation">
+    Returns `401 Unauthorized` — `"Token inválido o expirado"`
+  </Card>
+</CardGroup>
+
+<Warning>
+  Tokens expire according to the `JWT_EXPIRES_IN` environment variable (default `1h`). There is no refresh-token mechanism — once a token expires, the user must call `POST /api/v1/auth/login` again to obtain a new one. Store tokens securely (e.g., in memory or `httpOnly` cookies) and never expose them in URLs or logs.
+</Warning>

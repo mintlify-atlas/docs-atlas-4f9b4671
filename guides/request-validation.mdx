@@ -1,0 +1,217 @@
+---
+title: "Validate Request Inputs with SEAM API's Schema Middleware"
+sidebarTitle: "Request Validation"
+description: "SEAM API's validate middleware enforces field types, lengths, and patterns on request body, params, and query string before the request reaches any controller."
+---
+
+SEAM API ships a lightweight schema-based validation middleware that intercepts incoming requests and checks every configured field before a controller is ever invoked. If any field fails its rules, the request is rejected immediately with a `400 Bad Request` containing all error messages joined into a single response. Nothing invalid reaches the database layer.
+
+## How the Middleware Works
+
+`validate` is a **higher-order function** (a factory): you call it with a schema object and an optional source string, and it returns a standard Express middleware function. When the middleware runs, it reads the data from `req[source]`, iterates over every field defined in the schema, collects all violations, and either rejects with a `BadRequestError` or calls `next()` to pass the request to the controller.
+
+```js
+const validate = require('../../middleware/validate.middleware');
+
+// validate(schema, source?) → Express middleware
+router.post('/register', validate(registerSchema), authController.register);
+```
+
+The `source` parameter defaults to `'body'`. Pass `'params'` or `'query'` to validate URL parameters or query-string values instead.
+
+## Schema Rule Reference
+
+Each key in the schema object maps to a field name. Its value is a rules object whose properties describe all constraints to enforce:
+
+| Rule | Type | Applies To | Description |
+|---|---|---|---|
+| `required` | `boolean` | any | Field must be present, non-null, and non-empty string |
+| `type` | `'string' \| 'number' \| 'boolean'` | any | JavaScript `typeof` check on the raw value |
+| `minLength` | `number` | strings | Minimum character length (uses `String(value).length`) |
+| `maxLength` | `number` | strings | Maximum character length (uses `String(value).length`) |
+| `min` | `number` | numbers | Minimum numeric value (uses `Number(value)`) |
+| `max` | `number` | numbers | Maximum numeric value (uses `Number(value)`) |
+| `pattern` | `RegExp` | strings | Value must match the regular expression |
+
+Rules are evaluated in order. If a `required` field is absent, the remaining rules for that field are skipped. If a field is optional and absent, validation passes silently for that field. Type mismatches abort further checks on the same field to avoid misleading length/range errors.
+
+## Validation Flow
+
+```js
+const validate = (schema, source = 'body') => (req, res, next) => {
+  const data = req[source] || {};
+  const errors = [];
+
+  for (const [field, rules] of Object.entries(schema)) {
+    const value = data[field];
+    const isEmpty = value === undefined || value === null || value === '';
+
+    if (rules.required && isEmpty) {
+      errors.push(`'${field}' es requerido`);
+      continue;
+    }
+    if (isEmpty) continue;
+
+    if (rules.type && typeof value !== rules.type) {
+      errors.push(`'${field}' debe ser de tipo ${rules.type}`);
+      continue;
+    }
+    if (rules.minLength !== undefined && String(value).length < rules.minLength)
+      errors.push(`'${field}' debe tener al menos ${rules.minLength} caracteres`);
+    if (rules.maxLength !== undefined && String(value).length > rules.maxLength)
+      errors.push(`'${field}' no debe exceder ${rules.maxLength} caracteres`);
+    if (rules.min !== undefined && Number(value) < rules.min)
+      errors.push(`'${field}' debe ser mayor o igual a ${rules.min}`);
+    if (rules.max !== undefined && Number(value) > rules.max)
+      errors.push(`'${field}' debe ser menor o igual a ${rules.max}`);
+    if (rules.pattern && !rules.pattern.test(String(value)))
+      errors.push(`'${field}' tiene un formato inválido`);
+  }
+
+  if (errors.length > 0) return next(new BadRequestError(errors.join('. ')));
+  next();
+};
+```
+
+All errors are accumulated before the request is rejected, so the client receives a complete list of every failing field in a single response rather than discovering them one at a time.
+
+## Real-World Example: Auth Registration
+
+The `registerSchema` from `auth.routes.js` is the canonical example of the middleware in use. It combines every rule type in one schema:
+
+```js
+const registerSchema = {
+  full_name: { required: true, type: 'string', minLength: 2,  maxLength: 100 },
+  email:     { required: true, type: 'string', pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
+  password:  { required: true, type: 'string', minLength: 6,  maxLength: 100 },
+  roleId:    { required: true, type: 'number' },
+};
+
+router.post('/register', validate(registerSchema), authController.register);
+```
+
+Sending an invalid payload — for example, a `full_name` that is too short and a malformed `email` — produces:
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+
+{
+  "full_name": "A",
+  "email": "not-an-email",
+  "password": "secret123",
+  "roleId": 2
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "'full_name' debe tener al menos 2 caracteres. 'email' tiene un formato inválido"
+}
+```
+
+The controller is never called. All errors are delivered in a single `400` response.
+
+## Validating URL Parameters and Query Strings
+
+Pass `'params'` as the second argument to validate route parameters, or `'query'` to validate query-string values. This uses the same schema DSL.
+
+```js
+const idSchema = {
+  id: { required: true, type: 'string', pattern: /^\d+$/ },
+};
+
+const paginationSchema = {
+  page:  { required: false, type: 'string', pattern: /^\d+$/ },
+  limit: { required: false, type: 'string', pattern: /^\d+$/ },
+};
+
+// Validate :id in the URL, then validate the request body
+router.put(
+  '/:id',
+  validate(idSchema, 'params'),
+  validate(updateSchema),
+  controller.update
+);
+
+// Validate query string for list endpoints
+router.get(
+  '/',
+  validate(paginationSchema, 'query'),
+  controller.findAll
+);
+```
+
+## Chaining Multiple `validate` Calls
+
+Because `validate` returns a standard Express middleware, you can chain as many calls as you need in a single route definition. Express processes them left to right and stops at the first rejection:
+
+```js
+router.put(
+  '/:id',
+  validate(idSchema, 'params'),   // 1. Validate URL :id is a numeric string
+  validate(bodySchema, 'body'),   // 2. Validate request body fields
+  controller.update               // 3. Controller only reached when both pass
+);
+```
+
+<Note>
+  Each `validate` call covers exactly one source. Chaining two calls — one for `params` and one for `body` — is the recommended pattern when a route needs both. Errors from `params` validation will be returned before `body` validation even runs.
+</Note>
+
+## Error Response Format
+
+All validation failures go through the global `errorHandler` as `BadRequestError` instances, so the response always follows the standard envelope:
+
+```json
+{
+  "success": false,
+  "message": "'password' debe tener al menos 6 caracteres. 'roleId' es requerido"
+}
+```
+
+Multiple errors are joined with `". "` (period and space), producing a single readable string that enumerates every failing constraint.
+
+## Schema Definition Patterns
+
+<CardGroup cols={2}>
+  <Card title="String with length bounds" icon="text-size">
+    ```js
+    username: {
+      required: true,
+      type: 'string',
+      minLength: 3,
+      maxLength: 50,
+    }
+    ```
+  </Card>
+  <Card title="Email / format pattern" icon="envelope">
+    ```js
+    email: {
+      required: true,
+      type: 'string',
+      pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    }
+    ```
+  </Card>
+  <Card title="Numeric ID or range" icon="hashtag">
+    ```js
+    roleId: { required: true, type: 'number' },
+    age:    { required: false, type: 'number', min: 18, max: 120 },
+    ```
+  </Card>
+  <Card title="Optional field with format" icon="circle-question">
+    ```js
+    phone: {
+      required: false,
+      type: 'string',
+      pattern: /^\+?[\d\s\-]{7,15}$/,
+    }
+    ```
+  </Card>
+</CardGroup>
+
+<Tip>
+  The built-in `validate` middleware covers the most common single-field constraints. For more advanced use cases — nested objects, arrays, conditional rules, cross-field dependencies, or automatic sanitization — consider replacing or supplementing it with [Zod](https://zod.dev) or [Joi](https://joi.dev). Both integrate cleanly with Express and provide richer error formatting out of the box.
+</Tip>

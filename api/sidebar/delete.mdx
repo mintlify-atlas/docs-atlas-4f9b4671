@@ -1,0 +1,125 @@
+---
+title: "DELETE /api/v1/sidebar/:idItem — Delete a Sidebar Item"
+sidebarTitle: "Delete Item"
+description: "Permanently deletes a sidebar navigation item by its numeric ID. Requires JWT and the DELETE /api/v1/sidebar/:idItem permission. Also removes all role assignments for this item."
+---
+
+The `DELETE /api/v1/sidebar/:idItem` endpoint permanently removes a sidebar navigation item from the `sidebarItems` table. The endpoint first checks that the item exists, returning `404` if not found, then performs the deletion. Because the `roleXItem` table is defined with `ON DELETE CASCADE` on its foreign key to `sidebarItems`, all role-to-item assignments for the deleted item are automatically cleaned up by the database — no orphaned rows are left behind.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. The authenticated user's role must also have the permission `DELETE /api/v1/sidebar/:idItem` registered in the `permissions` table and assigned via `permissionXRole`.
+
+```
+Authorization: Bearer <token>
+```
+
+## Request
+
+**Method:** `DELETE`  
+**Path:** `/api/v1/sidebar/:idItem`
+
+This endpoint accepts no request body.
+
+### Path Parameters
+
+<ParamField path="idItem" type="string" required>
+  Numeric ID of the sidebar item to delete. Must match the pattern `^\d+$` (digits only). Corresponds to the `idItem` primary key in the `sidebarItems` table.
+</ParamField>
+
+## Response
+
+### 200 — Success
+
+The item was found and deleted. The response data is `null` since there is nothing to return for a deletion.
+
+```json
+{
+  "success": true,
+  "data": null
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` for delete operations.
+</ResponseField>
+
+### 400 — Bad Request
+
+Returned when the `idItem` path parameter is not a valid numeric string.
+
+```json
+{
+  "success": false,
+  "message": "idItem must match pattern ^\\d+$"
+}
+```
+
+### 401 — Unauthorized
+
+Returned when the `Authorization` header is missing or the token is invalid/expired.
+
+```json
+{
+  "success": false,
+  "message": "Token requerido"
+}
+```
+
+### 403 — Forbidden
+
+Returned when the authenticated user's role does not have the `DELETE /api/v1/sidebar/:idItem` permission.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso"
+}
+```
+
+### 404 — Not Found
+
+Returned when no sidebar item with the given `idItem` exists in the database.
+
+```json
+{
+  "success": false,
+  "message": "Sidebar item con id 9 no encontrado"
+}
+```
+
+### 409 — Conflict
+
+Returned when a database-level foreign key constraint prevents deletion (`ER_ROW_IS_REFERENCED_2`). This can occur if other tables reference `sidebarItems` without a cascade rule configured.
+
+```json
+{
+  "success": false,
+  "message": "ER_ROW_IS_REFERENCED_2"
+}
+```
+
+## Example
+
+```bash
+curl -X DELETE http://localhost:{PORT}/api/v1/sidebar/9 \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+<Warning>
+  Deleting a sidebar item is **permanent and irreversible**. Because the `roleXItem` table uses `ON DELETE CASCADE`, every role assignment for this item is also deleted automatically. Users whose roles had this item assigned will no longer see it in their sidebar immediately — the change takes effect on their next login or `GET /api/v1/sidebar` call.
+</Warning>
+
+## Real-time Events
+
+This endpoint emits Socket.IO events throughout the deletion lifecycle:
+
+| Event | Stage | Description |
+|---|---|---|
+| `sidebar:delete` | `start` | Deletion process initiated for the given item ID |
+| `sidebar:delete` | `processing` | Checking existence, then removing item and cascade assignments |
+| `sidebar:delete` | `success` | Item deleted, payload includes the deleted `idItem` |

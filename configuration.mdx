@@ -1,0 +1,174 @@
+---
+title: "Configure SEAM API: Environment Variables and Settings"
+sidebarTitle: "Configuration"
+description: "All environment variables accepted by SEAM API — database connection, JWT signing, CORS origin, and server port — with defaults and validation rules."
+---
+
+SEAM API reads all of its runtime settings from environment variables, loaded by `dotenv` from a `.env` file at project startup via `src/config/env.js`. Required variables are validated immediately when the process starts — a missing required variable throws an error and halts the server before any connections are accepted, preventing silent misconfiguration in any environment.
+
+## Environment Variables
+
+### Required Variables
+
+These six variables must be present in your environment. The server will throw `Error: Variable de entorno requerida faltante: <KEY>` and exit if any of them are absent or empty.
+
+<ParamField body="PORT" type="integer" required>
+  The port number the HTTP server binds to. Parsed as an integer with `parseInt(process.env.PORT, 10)`.
+
+  **Example:** `3000`
+</ParamField>
+
+<ParamField body="DB_HOST" type="string" required>
+  Hostname or IP address of the MySQL server SEAM API connects to.
+
+  **Example:** `localhost` or `db.internal.mycompany.com`
+</ParamField>
+
+<ParamField body="DB_USER" type="string" required>
+  The MySQL username used to authenticate the connection pool. This account needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` privileges on the target database.
+
+  **Example:** `seam_user`
+</ParamField>
+
+<ParamField body="DB_PASSWORD" type="string" required>
+  The password for `DB_USER`. Keep this value secret and never commit it to source control.
+
+  **Example:** `s3cur3P@ssw0rd`
+</ParamField>
+
+<ParamField body="DB_NAME" type="string" required>
+  The name of the MySQL database SEAM API uses for all queries.
+
+  **Example:** `seam_db`
+</ParamField>
+
+<ParamField body="JWT_SECRET" type="string" required>
+  The secret key used to sign and verify all JWT tokens with the HS256 algorithm. This value must be kept private — anyone who knows it can forge valid tokens.
+
+  **Example:** `a8f3d2e1b7c94f5d8e6a1b3c5d7e9f2a4b6c8d0e`
+
+  <Tip>
+    Generate a strong secret with at least 32 random bytes. You can use Node.js directly in your terminal:
+
+    ```bash
+    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    ```
+
+    Never reuse the same secret across environments (development, staging, production). Rotate the secret immediately if it is ever exposed, which will invalidate all existing tokens.
+  </Tip>
+</ParamField>
+
+---
+
+### Optional Variables
+
+These variables have built-in defaults and are safe to omit during local development. You should set them explicitly in production.
+
+<ParamField body="DB_PORT" type="integer" default="3306">
+  The port MySQL is listening on. Parsed as an integer. Override only if your MySQL instance runs on a non-standard port.
+
+  **Default:** `3306`
+
+  **Example:** `3307`
+</ParamField>
+
+<ParamField body="JWT_EXPIRES_IN" type="string" default="1h">
+  Controls how long a JWT remains valid after it is issued. Accepts any value supported by the `jsonwebtoken` library's `expiresIn` option: a number of seconds (integer) or a time-span string such as `60`, `2d`, `10h`, or `7d`.
+
+  **Default:** `1h`
+
+  **Examples:** `15m`, `8h`, `7d`
+</ParamField>
+
+<ParamField body="CORS_ORIGIN" type="string" default="*">
+  The origin (or origins) allowed by the CORS middleware applied in `app.js`. This value is passed directly to the `cors` package's `origin` option and to the Socket.IO server's CORS config.
+
+  **Default:** `*` (all origins — convenient for development, unsafe for production)
+
+  **Example:** `http://localhost:5173` or `https://app.mycompany.com`
+
+  <Warning>
+    **Never use `*` as `CORS_ORIGIN` in production.** Allowing all origins means any website can make credentialed requests to your API. Set `CORS_ORIGIN` to the exact URL of your frontend application so the browser's same-origin policy can enforce access control correctly. For multiple allowed origins, configure a custom origin function and adjust `app.js` accordingly.
+  </Warning>
+</ParamField>
+
+---
+
+## Complete .env Example
+
+Copy this template to the root of the project (next to `package.json`), fill in your values, and remove any comments you do not need:
+
+```bash
+# .env
+
+# ── Server ────────────────────────────────────────────────
+PORT=3000
+
+# ── MySQL ─────────────────────────────────────────────────
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=seam_user
+DB_PASSWORD=s3cur3P@ssw0rd
+DB_NAME=seam_db
+
+# ── JWT ───────────────────────────────────────────────────
+JWT_SECRET=a8f3d2e1b7c94f5d8e6a1b3c5d7e9f2a4b6c8d0e
+JWT_EXPIRES_IN=1h
+
+# ── CORS ──────────────────────────────────────────────────
+CORS_ORIGIN=http://localhost:5173
+```
+
+---
+
+## MySQL Connection Pool
+
+SEAM API uses `mysql2/promise` and creates a **connection pool** at startup (`src/config/db.js`). The pool configuration is fixed in code:
+
+| Setting | Value | Description |
+|---|---|---|
+| `connectionLimit` | `10` | Maximum number of simultaneous connections held in the pool |
+| `waitForConnections` | `true` | Queue requests when the pool is exhausted rather than rejecting them |
+| `queueLimit` | `0` | Unlimited queue depth (0 = no cap) |
+
+```js
+// src/config/db.js
+const pool = mysql.createPool({
+  ...DB,               // host, port, user, password, database from env.js
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+});
+```
+
+The pool is created once and shared across all incoming requests. You do not need to manage connections manually — `pool.execute()` and `pool.query()` automatically borrow and return connections.
+
+<Info>
+  For high-traffic deployments consider increasing `connectionLimit` to match the concurrency of your workload, keeping in mind the `max_connections` setting of your MySQL server. A common rule of thumb is to set the pool limit to no more than `(max_connections / number_of_app_instances) - buffer`.
+</Info>
+
+---
+
+## Graceful Shutdown
+
+SEAM API listens for `SIGINT` (Ctrl+C) and `SIGTERM` (sent by process managers such as systemd or Docker) and performs an orderly shutdown:
+
+1. The HTTP server stops accepting new connections (`server.close()`).
+2. Once all in-flight requests complete, the MySQL connection pool is drained (`pool.end()`).
+3. The process exits with code `0`.
+
+```js
+// src/server.js
+const shutdown = async (signal) => {
+  console.log(`\n${signal} recibido. Cerrando servidor...`);
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
+};
+
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+```
+
+This ensures that database connections are released cleanly and no queries are left in an inconsistent state when the server is stopped or redeployed.

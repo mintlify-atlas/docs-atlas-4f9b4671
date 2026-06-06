@@ -1,0 +1,201 @@
+---
+title: "POST /api/v1/sidebar/:idItem/role/:idRole — Assign Item to Role"
+sidebarTitle: "Assign to Role"
+description: "Links a sidebar navigation item to a role, making it visible in the sidebar for all users with that role. Requires JWT and the POST /api/v1/sidebar/:idItem/role/:idRole permission."
+---
+
+The `POST /api/v1/sidebar/:idItem/role/:idRole` endpoint creates an entry in the `roleXItem` pivot table, linking a sidebar navigation item to a role. Once assigned, every user whose `roleId` matches the given role will have that item included in the sidebar array returned at login and from `GET /api/v1/sidebar`. The endpoint validates that both the item and the role exist before inserting the assignment, and returns a conflict error if the same pair is already linked.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. The authenticated user's role must also have the permission `POST /api/v1/sidebar/:idItem/role/:idRole` registered in the `permissions` table and assigned via `permissionXRole`.
+
+```
+Authorization: Bearer <token>
+```
+
+## Request
+
+**Method:** `POST`  
+**Path:** `/api/v1/sidebar/:idItem/role/:idRole`
+
+This endpoint accepts no request body — all inputs are provided as path parameters.
+
+### Path Parameters
+
+<ParamField path="idItem" type="string" required>
+  Numeric ID of the sidebar item to assign. Must match `^\d+$`. The item must already exist in the `sidebarItems` table. Use `POST /api/v1/sidebar` to create the item first if needed.
+</ParamField>
+
+<ParamField path="idRole" type="string" required>
+  Numeric ID of the role to assign the item to. Must match `^\d+$`. The role must already exist in the `roles` table. Use `GET /api/v1/roles` to look up available role IDs.
+</ParamField>
+
+## Response
+
+### 201 — Created
+
+The item was successfully assigned to the role. The response data includes the IDs and names of both the role and the item for confirmation.
+
+```json
+{
+  "success": true,
+  "data": {
+    "idRole": 2,
+    "idItem": 7,
+    "roleName": "Manager",
+    "nameItem": "Reports"
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Confirmation object describing the assignment that was created.
+
+  <ResponseField name="data.idRole" type="integer">
+    ID of the role the item was assigned to.
+  </ResponseField>
+
+  <ResponseField name="data.idItem" type="integer">
+    ID of the sidebar item that was assigned.
+  </ResponseField>
+
+  <ResponseField name="data.roleName" type="string">
+    Display name of the role (e.g. `"Manager"`).
+  </ResponseField>
+
+  <ResponseField name="data.nameItem" type="string">
+    Display label of the sidebar item (e.g. `"Reports"`).
+  </ResponseField>
+</ResponseField>
+
+### 400 — Bad Request
+
+Returned when either path parameter is not a valid numeric string.
+
+```json
+{
+  "success": false,
+  "message": "idRole must match pattern ^\\d+$"
+}
+```
+
+### 401 — Unauthorized
+
+Returned when the `Authorization` header is missing or the token is invalid/expired.
+
+```json
+{
+  "success": false,
+  "message": "Token requerido"
+}
+```
+
+### 403 — Forbidden
+
+Returned when the authenticated user's role does not have the `POST /api/v1/sidebar/:idItem/role/:idRole` permission.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso"
+}
+```
+
+### 404 — Not Found
+
+Returned when either the specified role or the specified sidebar item does not exist.
+
+```json
+{
+  "success": false,
+  "message": "Rol con id 2 no encontrado"
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "Sidebar item con id 7 no encontrado"
+}
+```
+
+### 409 — Conflict
+
+Returned when the item is already assigned to the specified role. The `roleXItem` table is checked before insertion to prevent duplicates.
+
+```json
+{
+  "success": false,
+  "message": "El item ya está asignado a este rol"
+}
+```
+
+## Example
+
+```bash
+curl -X POST http://localhost:{PORT}/api/v1/sidebar/7/role/2 \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+<Note>
+  Once an item is assigned to a role, all users with that role will see it in their sidebar. The updated item list is reflected at the user's next login (via the `sidebarItems` field in the login response) and immediately on any subsequent `GET /api/v1/sidebar` call with a valid token.
+</Note>
+
+## Full Workflow
+
+Follow these steps to create a sidebar item and make it visible to users of a specific role:
+
+<Steps>
+  <Step title="Create the sidebar item">
+    Call `POST /api/v1/sidebar` with the item's name, optional icon, and optional route. Note the `idItem` returned in the response — you will need it in step 3.
+
+    ```bash
+    curl -X POST http://localhost:{PORT}/api/v1/sidebar \
+      -H "Authorization: Bearer <your_jwt_token>" \
+      -H "Content-Type: application/json" \
+      -d '{ "nameItem": "Reports", "iconItem": "bi bi-bar-chart", "route": "/reports" }'
+    ```
+  </Step>
+
+  <Step title="Find the target role ID">
+    Call `GET /api/v1/roles` to retrieve the list of roles and identify the `idRole` of the role you want to assign the item to.
+
+    ```bash
+    curl -X GET http://localhost:{PORT}/api/v1/roles \
+      -H "Authorization: Bearer <your_jwt_token>"
+    ```
+  </Step>
+
+  <Step title="Assign the item to the role">
+    Call `POST /api/v1/sidebar/:idItem/role/:idRole` using the `idItem` from step 1 and the `idRole` from step 2. No request body is needed.
+
+    ```bash
+    curl -X POST http://localhost:{PORT}/api/v1/sidebar/7/role/2 \
+      -H "Authorization: Bearer <your_jwt_token>"
+    ```
+  </Step>
+
+  <Step title="Verify the assignment">
+    Log in as a user with the target role (or call `GET /api/v1/sidebar` with their token) and confirm that the new item appears in the `sidebarItems` array.
+
+    ```bash
+    curl -X GET http://localhost:{PORT}/api/v1/sidebar \
+      -H "Authorization: Bearer <user_jwt_token>"
+    ```
+  </Step>
+</Steps>
+
+## Real-time Events
+
+This endpoint emits Socket.IO events throughout the assignment lifecycle:
+
+| Event | Stage | Description |
+|---|---|---|
+| `sidebar:assign` | `start` | Assignment process initiated |
+| `sidebar:assign` | `processing` | Validating role and item existence |
+| `sidebar:assign` | `success` | Assignment created, payload includes role name and item name |

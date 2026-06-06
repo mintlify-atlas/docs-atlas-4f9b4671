@@ -1,0 +1,215 @@
+---
+title: "Error Handling in SEAM API: HTTP Codes and Error Classes"
+sidebarTitle: "Error Handling"
+description: "SEAM API uses a centralized error handler that maps application errors and MySQL errors to structured JSON responses. Learn about error types, status codes, and safe error messages."
+---
+
+SEAM API processes every thrown error through a two-middleware pipeline registered at the very end of `app.js`. The first middleware catches requests to unknown routes and converts them into a typed `NotFoundError`. The second middleware — the global `errorHandler` — inspects every error that reaches it, maps it to the right HTTP status code, emits a Socket.IO notification to the requesting client, and responds with a consistent JSON envelope. Application internals are never exposed to the caller.
+
+## Error Response Envelope
+
+Every error response, regardless of type or origin, uses the same shape:
+
+```json
+{
+  "success": false,
+  "message": "<human-readable description>"
+}
+```
+
+`success` is always `false` on error. The `message` field is safe for display in a UI — SEAM API never leaks stack traces, SQL queries, or internal state to the HTTP response.
+
+## The Error Class Hierarchy
+
+### `AppError` — Base Class
+
+All intentional errors in SEAM API extend `AppError`, which itself extends the native `Error` class:
+
+```js
+class AppError extends Error {
+  constructor(message, statusCode, isOperational = true) {
+    super(message);
+    this.statusCode = statusCode;
+    this.isOperational = isOperational;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+```
+
+| Property | Type | Purpose |
+|---|---|---|
+| `message` | `string` | Human-readable description passed to the client |
+| `statusCode` | `number` | HTTP status code for the response |
+| `isOperational` | `boolean` | `true` means the error was intentional and its message is safe to expose |
+
+`Error.captureStackTrace` excludes the `AppError` constructor frame from the stack trace, making debugging cleaner.
+
+<Note>
+  Only errors where `isOperational` is `true` expose their `message` to the HTTP response. Unexpected errors (bugs, network failures, unhandled exceptions) always return the generic string `"Error interno del servidor"`, protecting internal implementation details from callers.
+</Note>
+
+### Built-in HTTP Error Classes
+
+Six concrete error classes are exported from `HttpErrors.js`. Each extends `AppError` with a fixed status code and a sensible Spanish-language default message.
+
+```js
+const {
+  BadRequestError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  UnprocessableEntityError,
+} = require('./core/errors/HttpErrors');
+```
+
+<CardGroup cols={2}>
+  <Card title="BadRequestError → 400" icon="circle-exclamation">
+    Default: `"Solicitud inválida"`. Thrown by the `validate` middleware when field rules fail, or directly by controllers when input is semantically wrong.
+  </Card>
+  <Card title="UnauthorizedError → 401" icon="lock">
+    Default: `"No autorizado"`. Thrown by JWT authentication middleware when the token is missing, malformed, or expired.
+  </Card>
+  <Card title="ForbiddenError → 403" icon="ban">
+    Default: `"Acceso denegado"`. Thrown by role-based access control when the authenticated user lacks permission for the requested resource.
+  </Card>
+  <Card title="NotFoundError → 404" icon="magnifying-glass">
+    Default: `"Recurso no encontrado"`. Thrown by controllers when a queried record does not exist, or automatically by `notFoundHandler` for unknown routes.
+  </Card>
+  <Card title="ConflictError → 409" icon="code-merge">
+    Default: `"Conflicto con el estado actual"`. Thrown when the requested change would violate a business rule or uniqueness constraint.
+  </Card>
+  <Card title="UnprocessableEntityError → 422" icon="triangle-exclamation">
+    Default: `"Entidad no procesable"`. Thrown when the request is structurally valid but semantically incorrect (e.g., date range inversion).
+  </Card>
+</CardGroup>
+
+Throw any of these classes from a controller or service — the global handler catches them automatically:
+
+```js
+const { NotFoundError, ConflictError } = require('../../core/errors/HttpErrors');
+
+// In a service method:
+const user = await userRepository.findById(id);
+if (!user) throw new NotFoundError(`Usuario con id ${id} no encontrado`);
+
+// Override the default message when needed:
+throw new ConflictError('El correo electrónico ya está registrado');
+```
+
+## MySQL Error Mapping
+
+MySQL constraint violations surface as error objects with a `code` property rather than `statusCode`. The error handler intercepts these before they reach the generic 500 path and converts them into meaningful HTTP responses:
+
+| MySQL Code | HTTP Status | Message Returned to Client |
+|---|---|---|
+| `ER_DUP_ENTRY` | `409 Conflict` | `El registro ya existe (valor duplicado)` |
+| `ER_NO_REFERENCED_ROW_2` | `400 Bad Request` | `Referencia a un registro inexistente` |
+| `ER_ROW_IS_REFERENCED_2` | `409 Conflict` | `No se puede eliminar: existen registros relacionados` |
+
+These mappings are defined in `MYSQL_ERROR_MAP` inside `error.middleware.js`. You never need to catch MySQL errors individually in your service layer — let them bubble up and the handler converts them automatically.
+
+```js
+// No need to catch this — error.middleware.js handles ER_DUP_ENTRY for you
+await pool.query('INSERT INTO users SET ?', [userData]);
+```
+
+## The 404 Not-Found Handler
+
+`notFoundHandler` is registered after all routes and before `errorHandler`. It catches every request that did not match any defined route and forwards a `NotFoundError` to the error pipeline:
+
+```js
+const notFoundHandler = (req, res, next) => {
+  next(new NotFoundError(`Ruta ${req.method} ${req.originalUrl} no encontrada`));
+};
+```
+
+This produces a JSON `404` response rather than Express's default HTML error page, keeping the API consistent for all callers.
+
+## The Global Error Handler
+
+`errorHandler` is the last middleware in `app.js`. Express identifies it as an error handler by its four-parameter signature `(err, req, res, next)`:
+
+```js
+const errorHandler = (err, req, res, next) => {
+  // 1. Emit Socket.IO error event to the requesting client
+  const store = requestContext.getStore();
+  if (store?.currentOperation) {
+    const safeMsg =
+      (err instanceof AppError && err.isOperational)
+        ? err.message
+        : (err.code && MYSQL_ERROR_MAP[err.code])
+          ? MYSQL_ERROR_MAP[err.code].message
+          : 'Error interno del servidor';
+    emitError(store.currentOperation, safeMsg);
+  }
+
+  // 2. MySQL constraint error
+  if (err.code && MYSQL_ERROR_MAP[err.code]) {
+    const { status, message } = MYSQL_ERROR_MAP[err.code];
+    return res.status(status).json({ success: false, message });
+  }
+
+  // 3. Operational AppError (BadRequestError, NotFoundError, etc.)
+  if (err instanceof AppError && err.isOperational) {
+    return res.status(err.statusCode).json({ success: false, message: err.message });
+  }
+
+  // 4. Unexpected error — log internally, respond generically
+  console.error('[ERROR NO CONTROLADO]', err);
+  return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+};
+```
+
+The handler processes every error through a strict priority order:
+
+1. **Socket.IO notification** — before anything else, the requesting socket's loader is dismissed via `emitError`.
+2. **MySQL errors** — checked by `err.code` membership in `MYSQL_ERROR_MAP`.
+3. **Operational errors** — checked by `instanceof AppError && isOperational`.
+4. **Unhandled errors** — everything else becomes a `500` with the generic message; the full error is logged server-side with `[ERROR NO CONTROLADO]`.
+
+## HTTP Status Code Reference
+
+| Status | Class / Source | When It Occurs |
+|---|---|---|
+| `400` | `BadRequestError` / `ER_NO_REFERENCED_ROW_2` | Validation failed, or FK points to non-existent row |
+| `401` | `UnauthorizedError` | JWT token absent, expired, or invalid |
+| `403` | `ForbiddenError` | Authenticated but insufficient role permissions |
+| `404` | `NotFoundError` / `notFoundHandler` | Resource or route not found |
+| `409` | `ConflictError` / `ER_DUP_ENTRY` / `ER_ROW_IS_REFERENCED_2` | Duplicate value or deletion blocked by related records |
+| `422` | `UnprocessableEntityError` | Request well-formed but semantically invalid |
+| `500` | Unhandled / unexpected | Any uncaught exception — details logged, not exposed |
+
+## Socket.IO Error Emission
+
+When an error occurs during an operation that has a `currentOperation` stored in the async request context, `errorHandler` calls `emitError` before sending the HTTP response. This dismisses any loading spinner on the client without requiring the frontend to rely solely on the HTTP response:
+
+```js
+// The client receives this on the 'operation:progress' channel:
+{
+  "operation": "users:create",
+  "status": "error",
+  "message": "El registro ya existe (valor duplicado)",
+  "data": null,
+  "timestamp": "2024-11-15T10:23:45.123Z"
+}
+```
+
+<Warning>
+  The Socket.IO error message uses the same sanitization logic as the HTTP response — only `isOperational` errors and mapped MySQL errors expose a meaningful message. All other errors send `"Error interno del servidor"` over the socket as well.
+</Warning>
+
+## Registering the Middleware
+
+Both middlewares must be registered **after all routes** in `app.js`:
+
+```js
+const { notFoundHandler, errorHandler } = require('./middleware/error.middleware');
+
+// ... all routes registered above ...
+
+app.use(notFoundHandler); // Must come before errorHandler
+app.use(errorHandler);    // Must be last — Express detects 4-param signature
+```
+
+Reversing the order or placing them before routes will break the pipeline: routes would never be reached, or errors would bypass the handler entirely.

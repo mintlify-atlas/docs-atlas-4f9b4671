@@ -1,0 +1,154 @@
+---
+title: "DELETE /api/v1/users/:id — Delete a User Account"
+sidebarTitle: "Delete User"
+description: "Permanently deletes a user account by numeric ID. Requires JWT authentication and the DELETE /api/v1/users/:id permission on the caller's role."
+---
+
+The `DELETE /api/v1/users/:id` endpoint permanently removes a user account from the database by their numeric primary key. The service verifies the user exists before issuing the delete query. On success the response returns `null` in the `data` field confirming the record has been removed.
+
+This endpoint requires a valid JWT token and that the caller's role has the `DELETE /api/v1/users/:id` permission registered in the database.
+
+---
+
+## Endpoint
+
+```
+DELETE /api/v1/users/:id
+```
+
+**Base URL:** `http://localhost:{PORT}/api/v1`
+
+**Authentication:** JWT Bearer token + role permission `DELETE /api/v1/users/:id`
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The numeric ID of the user to delete. Must match the pattern `^\d+$`. Validated by `validate.middleware` against `getByIdSchema` before the controller runs.
+</ParamField>
+
+---
+
+## Example Request
+
+```bash
+curl -X DELETE http://localhost:3000/api/v1/users/7 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Returned when the user exists and the deletion completes successfully. The `data` field is `null` — there is no record to return after deletion.
+
+```json
+{
+  "success": true,
+  "message": "Usuario eliminado exitosamente",
+  "data": null
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Usuario eliminado exitosamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` — the deleted record is no longer available.
+</ResponseField>
+
+---
+
+### 400 Bad Request — Invalid ID Format
+
+Returned when the `:id` path segment does not match `^\d+$` (letters, special characters, or decimals are rejected).
+
+```json
+{
+  "success": false,
+  "message": "El campo 'id' no cumple con el patrón requerido",
+  "data": null
+}
+```
+
+---
+
+### 401 Unauthorized
+
+Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado",
+  "data": null
+}
+```
+
+---
+
+### 403 Forbidden
+
+Returned when the JWT is valid but the caller's role does not have `DELETE /api/v1/users/:id` in the `permissionXRole` table.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso",
+  "data": null
+}
+```
+
+---
+
+### 404 Not Found
+
+Returned when no user with the given ID exists in the database. The service calls `findById` before deleting and throws `NotFoundError` if the record is absent.
+
+```json
+{
+  "success": false,
+  "message": "Usuario con id 7 no encontrado",
+  "data": null
+}
+```
+
+---
+
+### 409 Conflict — User Has Dependents
+
+Returned when the database raises `ER_ROW_IS_REFERENCED_2`, meaning another table contains rows that reference this user via a foreign key constraint. The user cannot be deleted while dependent records exist.
+
+```json
+{
+  "success": false,
+  "message": "No se puede eliminar el usuario porque tiene registros relacionados",
+  "data": null
+}
+```
+
+To resolve this, remove or reassign the dependent records before retrying the delete.
+
+---
+
+## Permission Setup
+
+For a role to access this endpoint, a record must exist in the `permissions` table with `nameUri = "DELETE /api/v1/users/:id"` and be linked to the role in `permissionXRole`. The `roles.middleware` derives this URI automatically from the Express route pattern:
+
+```
+DELETE /api/v1/users/:id
+```
+
+---
+
+<Warning>
+  **This operation is permanent.** There is no soft-delete mechanism — once a user account is deleted it cannot be recovered through the API. The row is immediately removed from the `users` table. Ensure you have confirmed the correct `id` and have obtained appropriate authorization before calling this endpoint.
+</Warning>

@@ -1,0 +1,102 @@
+---
+title: "DELETE /api/v1/roles/:idRole — Delete a Role"
+sidebarTitle: "Delete Role"
+description: "Permanently deletes a role by its numeric ID. Requires JWT and the DELETE /api/v1/roles/:idRole permission. Fails if users or permissions are still assigned to this role."
+---
+
+Permanently removes a role from the system by its numeric `idRole`. The role must exist and must not be referenced by any foreign-key–constrained records (such as user-role assignments) — if it is, the database will reject the deletion with a `409 Conflict`.
+
+After a successful deletion, a `data:changed` Socket.IO event is broadcast to all connected clients.
+
+<Warning>
+  Deleting a role does **not** cascade to user accounts automatically at the application layer. If any users currently hold this role, the database will raise an `ER_ROW_IS_REFERENCED_2` foreign-key constraint error and the deletion will fail with `409 Conflict`. Unassign all users from the role before deleting it. Similarly, all permission assignments for the role should be removed first via the [Unassign Permission](/api/permissions/unassign) endpoint.
+</Warning>
+
+## Authentication
+
+Requires a valid JWT **and** the `DELETE /api/v1/roles/:idRole` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `DELETE`
+**Path:** `/api/v1/roles/:idRole`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="idRole" type="string" required>
+  The numeric ID of the role to delete. Must match `^\d+$` (digits only).
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Returns `null` for `data` on a successful deletion.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` for delete operations.
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Rol eliminado exitosamente",
+  "data": null
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | `idRole` path parameter is not a valid numeric string. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/roles/:idRole` permission. |
+| `404 Not Found` | No role exists with the given `idRole`. |
+| `409 Conflict` | The role is still referenced by users or permission assignments (`ER_ROW_IS_REFERENCED_2`). |
+
+```json 404 Not Found
+{
+  "success": false,
+  "message": "Rol con id 99 no encontrado",
+  "data": null
+}
+```
+
+```json 409 Conflict — Foreign Key Constraint
+{
+  "success": false,
+  "message": "Conflicto con el estado actual",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X DELETE http://localhost:3000/api/v1/roles/4 \
+  -H "Authorization: Bearer <your_token>"
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `roles:delete` | `start` → `processing` → `success` |
+| `data:changed` | All clients | `roles:delete` | Broadcast with `{ idRole }` of the deleted role |

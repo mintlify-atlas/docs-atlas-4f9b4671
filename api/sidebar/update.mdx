@@ -1,0 +1,163 @@
+---
+title: "PUT /api/v1/sidebar/:idItem — Update a Sidebar Item"
+sidebarTitle: "Update Item"
+description: "Updates the name, icon, or route of a sidebar navigation item by its numeric ID. All body fields are optional. Requires JWT and the PUT /api/v1/sidebar/:idItem permission."
+---
+
+The `PUT /api/v1/sidebar/:idItem` endpoint performs a partial update on an existing sidebar navigation item. All three body fields — `nameItem`, `iconItem`, and `route` — are optional, so you can update only the specific field you need without touching the rest. The endpoint first verifies the item exists and returns a `404` if it does not, then applies the changes and returns the full updated record.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. The authenticated user's role must also have the permission `PUT /api/v1/sidebar/:idItem` registered in the `permissions` table and assigned via `permissionXRole`.
+
+```
+Authorization: Bearer <token>
+```
+
+## Request
+
+**Method:** `PUT`  
+**Path:** `/api/v1/sidebar/:idItem`
+
+### Path Parameters
+
+<ParamField path="idItem" type="string" required>
+  Numeric ID of the sidebar item to update. Must match the pattern `^\d+$` (digits only). Corresponds to the `idItem` primary key in the `sidebarItems` table.
+</ParamField>
+
+### Body Parameters
+
+All body fields are optional. Include only the fields you want to change. Sending an empty body `{}` is valid but results in no changes being applied.
+
+<ParamField body="nameItem" type="string">
+  New display label for the navigation item. Must be between 1 and 100 characters if provided.
+</ParamField>
+
+<ParamField body="iconItem" type="string">
+  New icon identifier (e.g. CSS class name like `"bi bi-gear"`). Maximum 50 characters if provided.
+</ParamField>
+
+<ParamField body="route" type="string">
+  New frontend route path (e.g. `"/settings"`). Maximum 100 characters if provided.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "nameItem": "System Settings",
+  "route": "/settings/system"
+}
+```
+
+## Response
+
+### 200 — Success
+
+Returns the full updated sidebar item record after the changes are applied.
+
+```json
+{
+  "success": true,
+  "data": {
+    "idItem": 4,
+    "nameItem": "System Settings",
+    "iconItem": "bi bi-gear",
+    "route": "/settings/system"
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The full updated sidebar item object, reflecting all current field values (not just the changed ones).
+
+  <ResponseField name="data.idItem" type="integer">
+    Numeric ID of the sidebar item.
+  </ResponseField>
+
+  <ResponseField name="data.nameItem" type="string">
+    Current display label after the update.
+  </ResponseField>
+
+  <ResponseField name="data.iconItem" type="string | null">
+    Current icon identifier after the update, or `null` if not set.
+  </ResponseField>
+
+  <ResponseField name="data.route" type="string | null">
+    Current route path after the update, or `null` if not set.
+  </ResponseField>
+</ResponseField>
+
+### 400 — Bad Request
+
+Returned when the `idItem` path parameter is not a valid numeric string, or when a provided body field fails its length or type constraint.
+
+```json
+{
+  "success": false,
+  "message": "idItem must match pattern ^\\d+$"
+}
+```
+
+### 401 — Unauthorized
+
+Returned when the `Authorization` header is missing or the token is invalid/expired.
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado"
+}
+```
+
+### 403 — Forbidden
+
+Returned when the authenticated user's role does not have the `PUT /api/v1/sidebar/:idItem` permission.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso"
+}
+```
+
+### 404 — Not Found
+
+Returned when no sidebar item with the given `idItem` exists in the database.
+
+```json
+{
+  "success": false,
+  "message": "Sidebar item con id 4 no encontrado"
+}
+```
+
+## Example
+
+```bash
+curl -X PUT http://localhost:{PORT}/api/v1/sidebar/4 \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nameItem": "System Settings",
+    "route": "/settings/system"
+  }'
+```
+
+<Tip>
+  Because all body fields are optional, you can perform field-level updates without re-sending unchanged data. For example, to rename an item while keeping its icon and route intact, send only `{ "nameItem": "New Label" }`.
+</Tip>
+
+## Real-time Events
+
+This endpoint emits Socket.IO events throughout the update lifecycle:
+
+| Event | Stage | Description |
+|---|---|---|
+| `sidebar:update` | `start` | Update process initiated for the given item ID |
+| `sidebar:update` | `processing` | Checking existence, then persisting changes |
+| `sidebar:update` | `success` | Update complete, payload includes the updated item |

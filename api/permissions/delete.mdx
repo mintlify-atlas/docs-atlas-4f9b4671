@@ -1,0 +1,92 @@
+---
+title: "DELETE /api/v1/permission/:id — Delete a Permission"
+sidebarTitle: "Delete Permission"
+description: "Permanently deletes a permission record by its numeric ID. Also removes all role assignments for this permission. Requires JWT and the DELETE /api/v1/permission/:id permission."
+---
+
+Permanently removes a permission from the system by its numeric `id`. The deletion runs inside a **database transaction**: all entries in the `permissionXRole` pivot table referencing this permission are deleted first, then the permission record itself is removed. If the permission does not exist, a `404` is returned.
+
+<Warning>
+  Deleting a permission **cascades** — all role-permission assignments for this permission are automatically removed within the same transaction. Any role that previously held this permission will **immediately** lose access to the associated route. This operation is irreversible. Consider using [Unassign Permission](/api/permissions/unassign) to revoke the permission from individual roles without permanently removing the permission record.
+</Warning>
+
+## Authentication
+
+Requires a valid JWT **and** the `DELETE /api/v1/permission/:id` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `DELETE`
+**Path:** `/api/v1/permission/:id`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The numeric ID of the permission to delete. Must match `^\d+$` (digits only).
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Returns `null` for `data` on a successful deletion.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` for delete operations.
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Permiso eliminado exitosamente",
+  "data": null
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | `id` path parameter is not a valid numeric string. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/permission/:id` permission. |
+| `404 Not Found` | No permission with the given `id` exists. |
+| `409 Conflict` | Unexpected constraint error during the transactional deletion. |
+
+```json 404 Not Found
+{
+  "success": false,
+  "message": "Permiso con id 99 no encontrado",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X DELETE http://localhost:3000/api/v1/permission/5 \
+  -H "Authorization: Bearer <your_token>"
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `permissions:delete` | `start` → `success` |
+| `data:changed` | All clients | `permissions:delete` | Broadcast with the deleted permission `id` |

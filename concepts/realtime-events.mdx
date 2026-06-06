@@ -1,0 +1,244 @@
+---
+title: "Real-Time Operation Events via Socket.IO in SEAM API"
+sidebarTitle: "Real-Time Events"
+description: "SEAM API emits Socket.IO events during every operation, letting clients show live progress indicators and automatically refresh data when mutations occur."
+---
+
+Every service call in SEAM API reports its progress over Socket.IO in real time. This means your frontend can show an accurate loading message at each step of an operation ("Verifying credentials…", "Generating session token…") and automatically refresh a data table the moment another user makes a change — without polling.
+
+## The two event types
+
+SEAM API emits two distinct Socket.IO events. They serve different purposes and are delivered to different audiences.
+
+<CardGroup cols={2}>
+  <Card title="operation:progress" icon="loader">
+    Emitted **only to the socket that initiated the request**. Carries granular status updates so the requesting client can drive a loader or notification component.
+  </Card>
+  <Card title="data:changed" icon="arrows-rotate">
+    Broadcast to **all connected clients** when a mutation succeeds. Lets every open tab or session refresh its data without polling.
+  </Card>
+</CardGroup>
+
+### `operation:progress` payload
+
+```ts
+{
+  operation:  string;   // e.g. "user:fetchAll", "auth:register"
+  status:     "start" | "processing" | "success" | "error";
+  message:    string;   // human-readable step description
+  data:       any;      // result payload on success, null otherwise
+  timestamp:  string;   // ISO 8601 date-time string
+}
+```
+
+### `data:changed` payload
+
+```ts
+{
+  operation:         string;        // e.g. "user:edit", "permission:assign"
+  message:           string;        // success message from the service
+  data:              any;           // the mutated entity or null
+  initiatorSocketId: string | null; // socket ID of the client that triggered the mutation
+}
+```
+
+## Operation lifecycle
+
+Every service function moves through a defined sequence of lifecycle states using four helper functions from `socketEvents.js`:
+
+```
+emitStart()      →  status: "start"       (operation begins, show loader)
+emitProcessing() →  status: "processing"  (intermediate step, update message)
+emitSuccess()    →  status: "success"     (completed, hide loader, refresh UI)
+emitError()      →  status: "error"       (failed, hide loader, show error)
+```
+
+Here is how the login service uses them:
+
+```js
+const login = async ({ email, password }) => {
+  emitStart('auth:login', 'Iniciando autenticación...');
+
+  emitProcessing('auth:login', 'Verificando credenciales...');
+  const user = await authRepository.findByEmailWithRole(email);
+  const valid = user ? await bcrypt.compare(password, user.password) : false;
+  if (!user || !valid) throw new UnauthorizedError('Credenciales inválidas');
+
+  emitProcessing('auth:login', 'Cargando permisos y menú...');
+  const [sidebarItems, permissions] = await Promise.all([...]);
+
+  emitProcessing('auth:login', 'Generando token de sesión...');
+  const token = jwt.sign(payload, JWT.secret, { expiresIn: JWT.expiresIn });
+
+  emitSuccess('auth:login', 'Sesión iniciada exitosamente', { idUser, email });
+  return result;
+};
+```
+
+<Tip>
+  When a service throws an error, the global error middleware uses `store.currentOperation` (set during `emitStart`) to call `emitError` with the right operation name automatically — you don't need to catch and emit in every service.
+</Tip>
+
+## Mutations vs. reads
+
+`data:changed` is only emitted for **mutation** operations. The `socketEvents.js` helper classifies an operation as a read if its name ends with one of the fetch suffixes, or if it is the login operation:
+
+```js
+// Read-only suffixes — these never trigger data:changed
+const FETCH_SUFFIXES = [':fetchAll', ':fetchOne', ':fetchByRole', ':fetchByUri'];
+
+// Read-only operations identified by full name
+const FETCH_OPS = ['auth:login'];
+
+const isMutation = (op) =>
+  !FETCH_SUFFIXES.some(s => op.endsWith(s)) &&
+  !FETCH_OPS.includes(op);
+```
+
+Everything else — `auth:register`, `user:edit`, `permission:assign`, `role:delete`, etc. — is treated as a mutation and triggers a broadcast.
+
+## The request context and `AsyncLocalStorage`
+
+The server needs to know **which socket to target** for `operation:progress` events without passing IDs through every function signature. It uses Node.js `AsyncLocalStorage` to carry a per-request context store that propagates automatically through the entire `async/await` chain:
+
+```js
+// requestContext.js — store shape
+{
+  userId:           number | null,  // populated by auth.middleware after JWT verification
+  socketId:         string | null,  // populated by context.middleware from X-Socket-ID header
+  currentOperation: string | null,  // set on emitStart, used by error.middleware
+}
+```
+
+`context.middleware.js` initialises a fresh store for every incoming HTTP request before any route handler runs:
+
+```js
+module.exports = (req, res, next) => {
+  const socketId = req.headers['x-socket-id'] ?? null;
+  requestContext.run({ userId: null, socketId, currentOperation: null }, next);
+};
+```
+
+The emit helper then reads the store to decide how to target the event:
+
+```js
+if (store?.socketId) {
+  // Precise: emit only to the exact browser tab that made the request
+  socketService.emitToSocket(store.socketId, 'operation:progress', payload);
+} else if (store?.userId) {
+  // Fallback: emit to all sockets belonging to the user
+  socketService.emitToUser(store.userId, 'operation:progress', payload);
+}
+```
+
+## Connecting and listening — client setup
+
+### 1. Establish the Socket.IO connection
+
+Pass the JWT in the `auth` object. The server rejects connections without a valid token.
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:3000', {
+  auth: { token: localStorage.getItem('token') },
+});
+
+socket.on('connect', () => {
+  console.log('Connected:', socket.id);
+});
+
+socket.on('connect_error', (err) => {
+  console.error('Connection failed:', err.message);
+});
+```
+
+### 2. Listen for operation progress
+
+```js
+socket.on('operation:progress', ({ operation, status, message, data }) => {
+  if (status === 'start' || status === 'processing') {
+    showLoader(message);          // update your loading indicator
+  } else if (status === 'success') {
+    hideLoader();
+    showSuccessToast(message);
+  } else if (status === 'error') {
+    hideLoader();
+    showErrorToast(message);
+  }
+});
+```
+
+### 3. Listen for data changes
+
+```js
+socket.on('data:changed', ({ operation, data, initiatorSocketId }) => {
+  // If this socket triggered the mutation it already has the result
+  // from the HTTP response — skip the redundant refresh.
+  if (initiatorSocketId === socket.id) return;
+
+  refreshTable();   // reload the affected data from the API
+});
+```
+
+### 4. Send `X-Socket-ID` with every HTTP request
+
+```js
+async function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'X-Socket-ID': socket.id,   // links this HTTP call to the exact socket
+      ...options.headers,
+    },
+  });
+}
+```
+
+## User rooms
+
+When a socket authenticates successfully, the server joins it to a private room named `user:{userId}`:
+
+```js
+// server.js
+io.on('connection', (socket) => {
+  const userId = socket.user?.idUser;
+  socket.join(`user:${userId}`);
+});
+```
+
+This room is used as the fallback target for `operation:progress` when no `X-Socket-ID` header was sent. It also provides a convenient way to push notifications to a specific user across all of their open tabs using `socketService.emitToUser(userId, event, data)`.
+
+## `initiatorSocketId` and skipping redundant refreshes
+
+When `data:changed` is broadcast, it includes the `initiatorSocketId` of the socket that triggered the mutation. The client that made the original HTTP request already received the updated data in the API response — it does not need to re-fetch. Comparing `initiatorSocketId` to `socket.id` lets that client skip the refresh while all other connected clients still update:
+
+```js
+socket.on('data:changed', ({ operation, data, initiatorSocketId }) => {
+  if (initiatorSocketId === socket.id) {
+    // Already have the latest data from the HTTP response
+    return;
+  }
+  // Another client or tab made this change — refresh the local view
+  refreshTable(operation);
+});
+```
+
+<Note>
+  The default setup works for a single-server deployment. If you run multiple SEAM API instances behind a load balancer, Socket.IO events emitted on one instance are not seen by sockets connected to other instances. To fix this, attach a Redis adapter when initialising Socket.IO:
+
+  ```js
+  const { createAdapter } = require('@socket.io/redis-adapter');
+  const { createClient } = require('redis');
+
+  const pubClient = createClient({ url: 'redis://localhost:6379' });
+  const subClient = pubClient.duplicate();
+
+  await Promise.all([pubClient.connect(), subClient.connect()]);
+  io.adapter(createAdapter(pubClient, subClient));
+  ```
+
+  This is mentioned in `socket.js` as a requirement for multi-instance deployments.
+</Note>

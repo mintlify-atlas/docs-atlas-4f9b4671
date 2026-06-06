@@ -1,0 +1,102 @@
+---
+title: "SEAM API: Secure REST API with JWT and Real-Time Events"
+sidebarTitle: "Introduction"
+description: "SEAM API is a Node.js/Express REST API with JWT auth, RBAC, permission management, and Socket.IO real-time progress events for building secure web backends."
+---
+
+SEAM API is a production-ready REST API backend built with Node.js and Express 5, designed to give you a complete foundation for secure web applications. It ships with JWT authentication, role-based access control (RBAC), fine-grained permission management, dynamic sidebar generation, and Socket.IO-powered real-time progress events — all wired together in a clean, modular architecture that is easy to extend.
+
+## What SEAM API Does
+
+SEAM API handles the backend concerns that every web application needs but that are time-consuming to build correctly from scratch: user registration and login, token lifecycle management, role and permission assignment, and live UI feedback during long-running server operations. Rather than bolting these features onto an existing project, SEAM API treats them as first-class citizens of the API design.
+
+All protected endpoints enforce JWT authentication and role-based authorization before any business logic runs. The real-time layer uses Socket.IO to stream granular operation progress events (`start`, `processing`, `success`, `error`) directly to the requesting client, so frontends can display accurate loading states without polling.
+
+## Technology Stack
+
+SEAM API is built on a focused set of well-maintained packages. Every dependency serves a specific purpose:
+
+| Package | Version | Role |
+|---|---|---|
+| `express` | ^5.2.1 | HTTP server and routing framework |
+| `mysql2` | ^3.22.4 | MySQL client with promise-based connection pooling |
+| `jsonwebtoken` | ^9.0.3 | JWT signing and verification |
+| `bcrypt` | ^6.0.0 | Password hashing and comparison |
+| `socket.io` | ^4.8.3 | WebSocket server for real-time events |
+| `cors` | ^2.8.6 | Cross-Origin Resource Sharing middleware |
+| `dotenv` | ^17.4.2 | Environment variable loading from `.env` |
+| `nodemon` | ^3.1.14 | Dev-only auto-restart on file changes |
+
+## Key Capabilities
+
+**Authentication** — The `/auth/register` and `/auth/login` endpoints handle the full credential lifecycle. Passwords are hashed with bcrypt before storage. Login returns a signed JWT alongside the user's sidebar items and permissions, giving clients everything they need in one response.
+
+**Roles and Permissions** — Every user is assigned a role. Roles carry a set of named permissions that map to API URI patterns. The `roles.middleware` checks the incoming request's URI against the permissions assigned to the authenticated user's role, rejecting requests that don't match before they reach the controller.
+
+**Real-Time Progress Events** — Operations emit structured Socket.IO events at each lifecycle stage. The client identifies itself via the `X-Socket-ID` request header so the server can target events to the exact browser tab that triggered the operation, while broadcasting `data:changed` events to all connected clients when data mutations succeed.
+
+**Sidebar Management** — The `/sidebar` endpoint returns a dynamic navigation menu built from the permissions attached to the requesting user's role, enabling role-aware navigation in the frontend without hard-coding menu logic.
+
+## Architecture Overview
+
+The project follows a modular structure. Each feature area lives in its own directory under `src/modules/`, containing a controller, service, repository, and routes file:
+
+```
+src/
+├── config/
+│   ├── db.js          # mysql2 connection pool (limit: 10)
+│   ├── env.js         # Environment validation and export
+│   └── socket.js      # Socket.IO service singleton
+├── core/
+│   ├── BaseRepository.js      # Shared query helpers
+│   ├── errors/                # AppError, HttpErrors
+│   ├── helpers/
+│   │   ├── ApiResponse.js     # Standardised response wrapper
+│   │   └── socketEvents.js    # Real-time event emitter helpers
+│   └── requestContext.js      # AsyncLocalStorage request store
+├── middleware/
+│   ├── auth.middleware.js     # JWT verification
+│   ├── context.middleware.js  # Populates AsyncLocalStorage store
+│   ├── error.middleware.js    # Global error + 404 handlers
+│   ├── roles.middleware.js    # RBAC permission check
+│   └── validate.middleware.js # Request body validation
+├── modules/
+│   ├── auth/        # Register + Login
+│   ├── users/       # User CRUD
+│   ├── roles/       # Role management
+│   ├── permission/  # Permission management + assignment
+│   └── sidebar/     # Role-based navigation items
+├── routes/
+│   └── index.js     # Mounts all module routes under /api/v1
+├── app.js           # Express app setup (CORS, JSON, routes)
+└── server.js        # HTTP server, Socket.IO, graceful shutdown
+```
+
+The request context middleware uses Node's `AsyncLocalStorage` to attach the authenticated user's ID and Socket ID to every request, making that context available deep in the call stack without threading it through function parameters.
+
+## Base URL
+
+All API endpoints share a common base path:
+
+```
+http://localhost:{PORT}/api/v1
+```
+
+Replace `{PORT}` with the value of your `PORT` environment variable (e.g. `3000`). Every route in the API — auth, users, roles, permissions, and sidebar — is mounted under this prefix.
+
+## Explore the Docs
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Clone the repo, configure your environment, and make your first authenticated API request in under five minutes.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Learn how JWT tokens are issued on login, validated on each request, and used to connect to the Socket.IO layer.
+  </Card>
+  <Card title="Roles and Permissions" icon="shield-check" href="/concepts/roles-and-permissions">
+    Understand how roles are assigned to users and how permissions gate access to individual API routes.
+  </Card>
+  <Card title="Real-Time Events" icon="bolt-lightning" href="/concepts/realtime-events">
+    Explore the Socket.IO event lifecycle — operation:progress and data:changed — and how to consume them in a frontend client.
+  </Card>
+</CardGroup>

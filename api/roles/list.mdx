@@ -1,0 +1,107 @@
+---
+title: "GET /api/v1/roles — List All Roles"
+sidebarTitle: "List Roles"
+description: "Returns all roles in the system. Requires JWT authentication only — no role permission check — making it available to any authenticated user for use in forms."
+---
+
+Returns all roles currently registered in the system, up to a maximum of 200 records. This endpoint intentionally skips the roles middleware permission check so that any authenticated user can fetch the role list — for example, to populate a dropdown in a user-creation form.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. No specific role permission is needed.
+
+## Request
+
+**Method:** `GET`
+**Path:** `/api/v1/roles`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Returns the full list of roles.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of role objects.
+
+  <Expandable title="Role object">
+    <ResponseField name="idRole" type="number">
+      Unique numeric identifier for the role.
+    </ResponseField>
+
+    <ResponseField name="roleName" type="string">
+      The unique name of the role (e.g., `"Admin"`, `"Editor"`).
+    </ResponseField>
+
+    <ResponseField name="description" type="string | null">
+      Optional human-readable description of the role's purpose.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Roles obtenidos",
+  "data": [
+    {
+      "idRole": 1,
+      "roleName": "Admin",
+      "description": "Full system access"
+    },
+    {
+      "idRole": 2,
+      "roleName": "Editor",
+      "description": "Can create and edit content"
+    },
+    {
+      "idRole": 3,
+      "roleName": "Viewer",
+      "description": null
+    }
+  ]
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `401 Unauthorized` | Missing or invalid JWT token. |
+
+```json 401 Unauthorized
+{
+  "success": false,
+  "message": "No autorizado",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X GET http://localhost:3000/api/v1/roles \
+  -H "Authorization: Bearer <your_token>"
+```
+
+## Socket.IO Events
+
+This is a read-only endpoint. No `data:changed` broadcast is emitted. The requesting client receives the following `operation:progress` sequence on their socket:
+
+| Event | Operation | Status |
+|-------|-----------|--------|
+| `operation:progress` | — | No socket events emitted for list operations |

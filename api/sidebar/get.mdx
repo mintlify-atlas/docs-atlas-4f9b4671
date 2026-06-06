@@ -1,0 +1,101 @@
+---
+title: "GET /api/v1/sidebar — Get Sidebar Items for Current User"
+sidebarTitle: "Get Sidebar"
+description: "Returns the navigation sidebar items assigned to the authenticated user's role. Used by frontends to build dynamic, role-scoped navigation menus without a separate query."
+---
+
+The `GET /api/v1/sidebar` endpoint returns the list of navigation items that belong to the authenticated user's role. Rather than accepting a role ID as a query parameter, the endpoint reads `roleId` directly from the decoded JWT payload (`req.user.roleId`), so the caller never needs to specify which role to query — the token carries that context automatically. This makes the endpoint ideal for bootstrapping a frontend navigation menu right after session restore.
+
+## Authentication
+
+This endpoint requires a valid JWT passed as a Bearer token in the `Authorization` header. No additional role-based permission is needed beyond being authenticated — every logged-in user can fetch their own sidebar.
+
+```
+Authorization: Bearer <token>
+```
+
+## Request
+
+**Method:** `GET`  
+**Path:** `/api/v1/sidebar`
+
+This endpoint accepts no request body and no query parameters. The role is resolved entirely from the token.
+
+## Response
+
+### 200 — Success
+
+Returns an array of sidebar navigation items assigned to the authenticated user's role, ordered by `idItem` ascending.
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "idItem": 1,
+      "nameItem": "Dashboard",
+      "iconItem": "bi bi-speedometer2",
+      "route": "/dashboard"
+    },
+    {
+      "idItem": 3,
+      "nameItem": "Users",
+      "iconItem": "bi bi-people",
+      "route": "/users"
+    }
+  ]
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of sidebar item objects assigned to the authenticated user's role. Empty array `[]` if the role has no items assigned.
+
+  <ResponseField name="data[].idItem" type="integer">
+    Unique numeric identifier of the sidebar item.
+  </ResponseField>
+
+  <ResponseField name="data[].nameItem" type="string">
+    Display label shown in the navigation menu (e.g. `"Dashboard"`, `"Users"`).
+  </ResponseField>
+
+  <ResponseField name="data[].iconItem" type="string | null">
+    Icon identifier for the navigation item (e.g. a CSS class like `"bi bi-speedometer2"`). `null` if no icon was set when the item was created.
+  </ResponseField>
+
+  <ResponseField name="data[].route" type="string | null">
+    Frontend route path the item links to (e.g. `"/dashboard"`). `null` if no route was set.
+  </ResponseField>
+</ResponseField>
+
+### 401 — Unauthorized
+
+Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+
+```json
+{
+  "success": false,
+  "message": "Token requerido"
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado"
+}
+```
+
+## Example
+
+```bash
+curl -X GET http://localhost:{PORT}/api/v1/sidebar \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+<Note>
+  Sidebar items are also returned automatically in the login response (`POST /api/v1/auth/login`) under the `sidebarItems` key, alongside the token and user data. A separate call to this endpoint after login is typically not needed — it is most useful when restoring a session from a stored token (e.g. on page reload) without going through login again.
+</Note>

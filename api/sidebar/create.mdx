@@ -1,0 +1,146 @@
+---
+title: "POST /api/v1/sidebar — Create a Sidebar Navigation Item"
+sidebarTitle: "Create Item"
+description: "Creates a new sidebar navigation item with a name, optional icon, and optional route path. Requires JWT and the POST /api/v1/sidebar permission. Items are then assigned to roles separately."
+---
+
+The `POST /api/v1/sidebar` endpoint creates a new sidebar navigation item in the `sidebarItems` table. Creating an item does **not** assign it to any role — it simply registers the item so it can later be linked to one or more roles via `POST /api/v1/sidebar/:idItem/role/:idRole`. This two-step design lets you create items once and reuse them across multiple roles without duplication.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. The authenticated user's role must also have the permission `POST /api/v1/sidebar` registered in the `permissions` table and assigned via `permissionXRole`.
+
+```
+Authorization: Bearer <token>
+```
+
+## Request
+
+**Method:** `POST`  
+**Path:** `/api/v1/sidebar`
+
+### Body Parameters
+
+<ParamField body="nameItem" type="string" required>
+  Display label for the navigation item shown in the sidebar menu. Must be between 1 and 100 characters.
+</ParamField>
+
+<ParamField body="iconItem" type="string">
+  Icon identifier for the navigation item — typically a CSS class name (e.g. `"bi bi-speedometer2"` for Bootstrap Icons). Maximum 50 characters. Omit or pass `null` to leave unset.
+</ParamField>
+
+<ParamField body="route" type="string">
+  Frontend route path this item should navigate to when clicked (e.g. `"/dashboard"`, `"/users/list"`). Maximum 100 characters. Omit or pass `null` to leave unset.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "nameItem": "Reports",
+  "iconItem": "bi bi-bar-chart",
+  "route": "/reports"
+}
+```
+
+## Response
+
+### 201 — Created
+
+Returns the newly created sidebar item, including its auto-generated `idItem`.
+
+```json
+{
+  "success": true,
+  "data": {
+    "idItem": 7,
+    "nameItem": "Reports",
+    "iconItem": "bi bi-bar-chart",
+    "route": "/reports"
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created sidebar item object.
+
+  <ResponseField name="data.idItem" type="integer">
+    Auto-generated numeric ID for the new item. Use this value in subsequent calls to assign the item to a role.
+  </ResponseField>
+
+  <ResponseField name="data.nameItem" type="string">
+    Display label as provided in the request body.
+  </ResponseField>
+
+  <ResponseField name="data.iconItem" type="string | null">
+    Icon identifier as provided, or `null` if omitted.
+  </ResponseField>
+
+  <ResponseField name="data.route" type="string | null">
+    Route path as provided, or `null` if omitted.
+  </ResponseField>
+</ResponseField>
+
+### 400 — Bad Request
+
+Returned when the request body fails schema validation (e.g. `nameItem` is missing, exceeds length limits, or has the wrong type).
+
+```json
+{
+  "success": false,
+  "message": "nameItem is required"
+}
+```
+
+### 401 — Unauthorized
+
+Returned when the `Authorization` header is missing or the token is invalid/expired.
+
+```json
+{
+  "success": false,
+  "message": "Token requerido"
+}
+```
+
+### 403 — Forbidden
+
+Returned when the authenticated user's role does not have the `POST /api/v1/sidebar` permission.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso"
+}
+```
+
+## Example
+
+```bash
+curl -X POST http://localhost:{PORT}/api/v1/sidebar \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nameItem": "Reports",
+    "iconItem": "bi bi-bar-chart",
+    "route": "/reports"
+  }'
+```
+
+<Note>
+  After creating an item, it is not visible to any user yet. Use `POST /api/v1/sidebar/:idItem/role/:idRole` to assign the new item to one or more roles. Users with those roles will then see it in their sidebar at next login or when calling `GET /api/v1/sidebar`.
+</Note>
+
+## Real-time Events
+
+This endpoint emits Socket.IO events throughout the creation lifecycle:
+
+| Event | Stage | Description |
+|---|---|---|
+| `sidebar:create` | `start` | Creation process initiated |
+| `sidebar:create` | `processing` | Item being persisted to the database |
+| `sidebar:create` | `success` | Item created successfully, payload includes new item data |

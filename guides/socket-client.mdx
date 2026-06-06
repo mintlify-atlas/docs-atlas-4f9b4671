@@ -1,0 +1,299 @@
+---
+title: "Connect a Socket.IO Client to SEAM API for Live Updates"
+sidebarTitle: "Socket Client"
+description: "Step-by-step guide to connecting a Socket.IO client to SEAM API, handling authentication, listening to operation:progress events, and reacting to data:changed broadcasts."
+---
+
+SEAM API emits real-time events over Socket.IO so that your frontend can show loading feedback while HTTP operations run and instantly reflect data changes across every open tab or connected user. Every authenticated connection is placed in a private user room, and two event channels drive the UI lifecycle: `operation:progress` for per-operation status updates and `data:changed` for global data synchronization. This guide walks through the complete client setup.
+
+## Prerequisites
+
+Before connecting you need:
+
+- A valid JWT token obtained from `POST /api/v1/auth/login`.
+- The `socket.io-client` package installed in your frontend project.
+- The base URL of the SEAM API server (e.g., `http://localhost:3000`).
+
+```bash
+npm install socket.io-client
+```
+
+## Connection Setup
+
+<Steps>
+  <Step title="Obtain a JWT token">
+    Call the login endpoint and store the returned token. The Socket.IO handshake requires it.
+
+    ```js
+    const response = await fetch('http://localhost:3000/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'user@example.com', password: 'secret123' }),
+    });
+    const { token } = await response.json();
+    localStorage.setItem('jwt_token', token);
+    ```
+  </Step>
+
+  <Step title="Create the Socket.IO connection">
+    Pass the token in the `auth` object of the connection options. SEAM API's Socket.IO middleware validates the token via `jwt.verify` before the connection is accepted.
+
+    ```js
+    import { io } from 'socket.io-client';
+
+    const socket = io('http://localhost:3000', {
+      auth: { token: localStorage.getItem('jwt_token') },
+    });
+    ```
+  </Step>
+
+  <Step title="Handle connection events">
+    Confirm the connection succeeded and handle authentication errors returned by the server.
+
+    ```js
+    socket.on('connect', () => {
+      console.log('Connected to SEAM API. Socket ID:', socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      // Server rejects with "Token requerido para conectarse" or
+      // "Token inválido o expirado" when auth fails
+      console.error('Connection refused:', err.message);
+      if (err.message.includes('Token')) {
+        // Token expired — redirect to login
+        redirectToLogin();
+      }
+    });
+    ```
+  </Step>
+
+  <Step title="Join your private user room">
+    This happens automatically on the server side. Once connected, the server calls `socket.join('user:{userId}')` using the `idUser` claim from the decoded JWT. You do not need to emit a join event from the client.
+  </Step>
+</Steps>
+
+<Note>
+  In production deployments, replace `http://` with `https://` and ensure your reverse proxy (Nginx, Caddy, etc.) is configured to upgrade WebSocket connections. The Socket.IO URL must use `wss://` in secure contexts to avoid mixed-content browser errors.
+</Note>
+
+## Sending `X-Socket-ID` with Every HTTP Request
+
+SEAM API uses the `X-Socket-ID` request header to associate an incoming HTTP request with the specific socket that initiated it. This allows the server to emit `operation:progress` events back to exactly the right browser tab — even when the same user has multiple sessions open.
+
+Build a thin API client wrapper that attaches both the `Authorization` and `X-Socket-ID` headers automatically:
+
+```js
+const apiClient = {
+  async request(method, url, body) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`,
+        'Content-Type': 'application/json',
+        'X-Socket-ID': socket.id,  // ties this HTTP call to this socket
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return response.json();
+  },
+
+  get:    (url)       => apiClient.request('GET',    url),
+  post:   (url, body) => apiClient.request('POST',   url, body),
+  put:    (url, body) => apiClient.request('PUT',    url, body),
+  delete: (url)       => apiClient.request('DELETE', url),
+};
+```
+
+If `X-Socket-ID` is absent, the server falls back to broadcasting to all sockets belonging to the authenticated user's room (`user:{userId}`). Providing the header gives more precise targeting.
+
+## Handling `operation:progress` Events
+
+The server emits `operation:progress` directly to the socket that sent the `X-Socket-ID` header. Use this event to control loading spinners and in-app notifications.
+
+### Event Payload
+
+```ts
+{
+  operation:  string,              // e.g. "users:create", "roles:update"
+  status:     'start' | 'processing' | 'success' | 'error',
+  message:    string,              // human-readable description
+  data:       object | null,       // result payload (only on success)
+  timestamp:  string,              // ISO 8601
+}
+```
+
+### Lifecycle
+
+| `status` | When Emitted | Frontend Action |
+|---|---|---|
+| `start` | Operation begins in the controller | Show loader with initial message |
+| `processing` | Intermediate step (e.g., after DB write, before post-processing) | Update loader message |
+| `success` | Operation completed successfully | Hide loader, show success notification |
+| `error` | Any error was thrown and caught by `errorHandler` | Hide loader, display error message |
+
+### Full Handler Example
+
+```js
+socket.on('operation:progress', ({ operation, status, message, data, timestamp }) => {
+  console.log(`[${timestamp}] ${operation} → ${status}: ${message}`);
+
+  if (status === 'start' || status === 'processing') {
+    showLoader(message);
+  }
+
+  if (status === 'success') {
+    hideLoader();
+    showNotification(message);
+    // 'data' contains the created/updated record when relevant
+    if (data) updateLocalRecord(operation, data);
+  }
+
+  if (status === 'error') {
+    hideLoader();
+    showError(message);
+  }
+});
+```
+
+<Note>
+  Read-only operations (those ending in `:fetchAll`, `:fetchOne`, `:fetchByRole`, `:fetchByUri`, or `auth:login`) do **not** emit a `data:changed` broadcast on success, since they don't modify data. They still emit `operation:progress` to the requesting socket.
+</Note>
+
+## Handling `data:changed` for Real-Time Table Updates
+
+The server broadcasts `data:changed` to **all** connected clients whenever a mutation operation (create, update, delete, assign) completes successfully. Use this event to keep every open session up to date without polling.
+
+### Event Payload
+
+```ts
+{
+  operation:         string,        // e.g. "users:create", "roles:update"
+  message:           string,        // same success message as operation:progress
+  data:              object | null, // the affected record
+  initiatorSocketId: string | null, // socket ID of the client that triggered the change
+}
+```
+
+### Deduplication with `initiatorSocketId`
+
+The `initiatorSocketId` field lets you skip redundant updates. The client that triggered the operation already has the latest data from the HTTP response — applying the `data:changed` payload on top would be a no-op at best and a race condition at worst.
+
+```js
+socket.on('data:changed', ({ operation, data, initiatorSocketId }) => {
+  // Skip if this client was the one who made the change —
+  // we already updated the UI from the HTTP response.
+  if (initiatorSocketId === socket.id) return;
+
+  // Another user (or another tab of the same user) changed data.
+  // Refresh only the relevant portion of the UI.
+  refreshDataForOperation(operation, data);
+});
+```
+
+### Routing Updates by Operation Name
+
+Operation names follow the convention `<resource>:<verb>`. Parse the string to decide which slice of your UI to refresh:
+
+```js
+function refreshDataForOperation(operation, data) {
+  const [resource] = operation.split(':');
+
+  switch (resource) {
+    case 'users':
+      userStore.applyRemoteUpdate(operation, data);
+      break;
+    case 'roles':
+      roleStore.applyRemoteUpdate(operation, data);
+      break;
+    default:
+      // Unknown resource — do a full refresh as a safe fallback
+      triggerFullRefresh();
+  }
+}
+```
+
+## User Rooms
+
+Every authenticated socket is automatically placed in the room `user:{userId}` on connection. This means events emitted with `emitToUser(userId, ...)` reach every session that user has open — desktop browser, mobile tab, and so on — without the client needing to join any room manually.
+
+```
+Socket connection authenticated
+  └─ socket.user.idUser = 42
+       └─ socket.join('user:42')
+```
+
+To send an event to a specific tab only (not all sessions), the server uses `emitToSocket(socketId, ...)` when `X-Socket-ID` was provided with the request. This is how `operation:progress` achieves per-tab precision.
+
+## Reconnection Behavior
+
+Socket.IO reconnects automatically after a network interruption. On each reconnect attempt the handshake `auth.token` is re-evaluated by the server's JWT middleware. If the token has expired during the disconnection period, the reconnect will be rejected with `"Token inválido o expirado"`.
+
+Handle this in your reconnect logic:
+
+```js
+socket.io.on('reconnect_attempt', () => {
+  // Refresh the token in the auth option before the next attempt
+  socket.auth.token = localStorage.getItem('jwt_token');
+});
+
+socket.on('connect_error', (err) => {
+  if (err.message.includes('Token')) {
+    // Token is expired — stop reconnecting and send the user to login
+    socket.io.opts.reconnection = false;
+    redirectToLogin();
+  }
+});
+```
+
+## Complete Setup Example
+
+```js
+import { io } from 'socket.io-client';
+
+const BASE_URL = 'http://localhost:3000';
+
+// --- Connection ---
+const socket = io(BASE_URL, {
+  auth: { token: localStorage.getItem('jwt_token') },
+});
+
+socket.on('connect',       () => console.log('Socket connected:', socket.id));
+socket.on('disconnect',    (reason) => console.warn('Socket disconnected:', reason));
+socket.on('connect_error', (err) => console.error('Socket auth error:', err.message));
+
+// --- HTTP client that tags requests with this socket ---
+const api = {
+  async request(method, path, body) {
+    const res = await fetch(`${BASE_URL}/api/v1${path}`, {
+      method,
+      headers: {
+        'Authorization':  `Bearer ${localStorage.getItem('jwt_token')}`,
+        'Content-Type':   'application/json',
+        'X-Socket-ID':    socket.id,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json();
+  },
+  get:    (path)       => api.request('GET',    path),
+  post:   (path, body) => api.request('POST',   path, body),
+  put:    (path, body) => api.request('PUT',    path, body),
+  delete: (path)       => api.request('DELETE', path),
+};
+
+// --- Event listeners ---
+socket.on('operation:progress', ({ operation, status, message, data, timestamp }) => {
+  if (status === 'start' || status === 'processing') showLoader(message);
+  if (status === 'success') { hideLoader(); showNotification(message); }
+  if (status === 'error')   { hideLoader(); showError(message); }
+});
+
+socket.on('data:changed', ({ operation, data, initiatorSocketId }) => {
+  if (initiatorSocketId === socket.id) return;
+  refreshDataForOperation(operation, data);
+});
+```
+
+<Warning>
+  Never store the JWT token in a place accessible to third-party scripts. Prefer `httpOnly` cookies for production applications. If you use `localStorage`, be aware of XSS risk and mitigate it with a strict Content Security Policy.
+</Warning>

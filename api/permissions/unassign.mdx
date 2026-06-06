@@ -1,0 +1,111 @@
+---
+title: "DELETE /api/v1/permission/unassign — Remove a Permission from a Role"
+sidebarTitle: "Unassign Permission"
+description: "Removes the link between a permission and a role, revoking access to that route for users with that role. Requires JWT and the DELETE /api/v1/permission/unassign permission."
+---
+
+Removes the entry from the `permissionXRole` pivot table that links a `permissionId` to a `roleId`. After the unassignment, the `roles.middleware` will deny any request to the associated route made by users whose only qualifying role was this one. Access is revoked immediately on the next request — no restart required.
+
+<Warning>
+  Removing a permission from a role takes effect **immediately**. Any user currently authenticated with that role will be denied access to the associated route on their very next request, even if they are mid-session. Ensure you communicate maintenance windows or confirm that no active users rely on this permission before revoking it.
+</Warning>
+
+## Authentication
+
+Requires a valid JWT **and** the `DELETE /api/v1/permission/unassign` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `DELETE`
+**Path:** `/api/v1/permission/unassign`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`. This DELETE endpoint accepts a JSON body.
+</ParamField>
+
+### Body
+
+<ParamField body="roleId" type="number" required>
+  The numeric ID of the role to remove the permission from. Must be a JSON number (not a string).
+</ParamField>
+
+<ParamField body="permissionId" type="number" required>
+  The numeric ID of the permission to remove. Must be a JSON number (not a string).
+</ParamField>
+
+```json Example Request Body
+{
+  "roleId": 2,
+  "permissionId": 5
+}
+```
+
+## Response
+
+### 200 OK
+
+Returned when the unassignment completes. If the combination did not exist, the operation succeeds silently (no error is raised).
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` for this operation.
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Permiso removido del rol exitosamente",
+  "data": null
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | `roleId` or `permissionId` is missing or not a JSON number type. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/permission/unassign` permission. |
+| `404 Not Found` | Reserved for service-level checks; not currently raised by this endpoint (non-existent pairs are silently ignored). |
+
+```json 400 Bad Request
+{
+  "success": false,
+  "message": "Solicitud inválida",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X DELETE http://localhost:3000/api/v1/permission/unassign \
+  -H "Authorization: Bearer <your_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roleId": 2,
+    "permissionId": 5
+  }'
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `permissions:unassign` | `start` → `success` |
+| `data:changed` | All clients | `permissions:unassign` | Broadcast (no payload data) |

@@ -1,47 +1,202 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with SEAM API in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Install SEAM API, configure environment variables, start the server, and make your first authenticated request — all in under 5 minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through getting SEAM API running locally — from cloning the repository to making your first authenticated HTTP request with a real JWT token. By the end you will have a working server, a registered user, and a valid token you can use to explore every protected endpoint.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+<Step title="Clone the repo and install dependencies">
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+Clone the SEAM API repository and install all production and development dependencies with a single command:
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
+```bash
+git clone https://github.com/TheSerchCp/SEAM-API.git
+cd SEAM-API
+npm install
+```
+
+`npm install` pulls every package listed in `package.json`, including `nodemon` as a dev dependency for automatic server restarts during development. You do not need to install anything globally.
+
+<Info>
+  Node.js 18 or later is recommended. SEAM API uses `AsyncLocalStorage` (available since Node 12.17) and Express 5, which requires Node 18+.
+</Info>
+</Step>
+
+<Step title="Create the .env file">
+
+SEAM API validates required environment variables at startup and throws immediately if any are missing. Create a `.env` file at the project root before starting the server:
+
+```bash
+# .env — place this file at the root of the project (next to package.json)
+
+# Server
+PORT=3000
+
+# MySQL database connection
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_NAME=seam_db
+
+# JWT
+JWT_SECRET=replace_with_a_long_random_string
+JWT_EXPIRES_IN=1h
+
+# CORS — set to your frontend origin in production
+CORS_ORIGIN=http://localhost:5173
+```
+
+The variables `PORT`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `JWT_SECRET` are **required** — the server will refuse to start without them. `DB_PORT`, `JWT_EXPIRES_IN`, and `CORS_ORIGIN` are optional and fall back to the defaults shown above.
+
+See the [Configuration](/configuration) page for the full description of every variable, allowed values, and validation rules.
+
+</Step>
+
+<Step title="Start the server">
+
+Use the dev script during local development. It starts the server with `nodemon`, which watches for file changes and restarts automatically:
+
+```bash
+npm run dev
+```
+
+For a production environment where you want the Node.js process to run without the file watcher overhead, use:
+
+```bash
+npm start
+```
+
+A successful startup prints the following to stdout:
+
+```
+🚀 Servidor corriendo en http://localhost:3000/api/v1
+```
+
+If a required environment variable is missing you will instead see:
+
+```
+Error: Variable de entorno requerida faltante: JWT_SECRET
+```
+
+Fix the `.env` file and restart.
+
+</Step>
+
+<Step title="Register a user">
+
+With the server running, send a `POST` request to `/api/v1/auth/register` to create your first user. The `roleId` field assigns the user to an existing role in your database:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"full_name": "John Doe", "email": "john@example.com", "password": "secret123", "roleId": 1}'
+```
+
+A successful registration returns HTTP `201 Created` with the new user's data:
+
+```json
+{
+  "success": true,
+  "message": "Usuario registrado exitosamente",
+  "data": {
+    "idUser": 1,
+    "full_name": "John Doe",
+    "email": "john@example.com",
+    "roleId": 1
+  }
+}
+```
+
+The password is hashed with bcrypt before being stored — it is never saved in plaintext and is never returned in any response.
+
+</Step>
+
+<Step title="Log in and retrieve your token">
+
+Send a `POST` request to `/api/v1/auth/login` with the credentials you just registered:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "john@example.com", "password": "secret123"}'
+```
+
+The login response includes the JWT, its expiry, the user object, the role-filtered sidebar items, and the permissions assigned to the user's role:
+
+```json
+{
+  "success": true,
+  "message": "Login exitoso",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": "1h",
+    "user": {
+      "idUser": 1,
+      "full_name": "John Doe",
+      "email": "john@example.com",
+      "roleId": 1
+    },
+    "sidebarItems": [
+      { "label": "Dashboard", "path": "/dashboard", "icon": "home" }
+    ],
+    "permissions": [
+      { "nameUri": "/users", "method": "GET" },
+      { "nameUri": "/roles", "method": "GET" }
+    ]
+  }
+}
+```
+
+Copy the value of `token` — you will pass it in the `Authorization` header for every subsequent request to a protected endpoint.
+
+</Step>
+
+<Step title="Make an authenticated request">
+
+Pass the token in the `Authorization: Bearer` header to call any protected endpoint. The following example retrieves the full list of users:
+
+```bash
+curl http://localhost:3000/api/v1/users \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+A successful response returns HTTP `200 OK` with the users array:
+
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": [
+    {
+      "idUser": 1,
+      "full_name": "John Doe",
+      "email": "john@example.com",
+      "roleId": 1
+    }
+  ]
+}
+```
+
+If the token is missing, expired, or malformed, the API returns `401 Unauthorized`. If the token is valid but the user's role does not have permission for the requested URI, the API returns `403 Forbidden`.
+
+<Note>
+  **Real-time progress tracking with `X-Socket-ID`** — Once your frontend establishes a Socket.IO connection (authenticated with the same JWT), include the socket's ID in every mutating request using the `X-Socket-ID` header:
+
+  ```bash
+  curl -X PUT http://localhost:3000/api/v1/users/1 \
+    -H "Authorization: Bearer <token>" \
+    -H "X-Socket-ID: abc123socketid" \
+    -H "Content-Type: application/json" \
+    -d '{"full_name": "Jane Doe"}'
+  ```
+
+  The server reads `X-Socket-ID` from the request context and uses it to emit `operation:progress` events (`start` → `processing` → `success` / `error`) directly to the exact browser tab that triggered the operation, enabling precise loading-state control on the client.
+</Note>
+
+</Step>
+
 </Steps>
-
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>

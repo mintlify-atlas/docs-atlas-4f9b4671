@@ -1,0 +1,169 @@
+---
+title: "GET /api/v1/users/:id — Get a User by ID"
+sidebarTitle: "Get User"
+description: "Fetches a single user account by their numeric ID. Requires JWT authentication and the GET /api/v1/users/:id permission assigned to the caller's role."
+---
+
+The `GET /api/v1/users/:id` endpoint retrieves a single user record by their numeric primary key. The response includes the user's role name and role description via a `LEFT JOIN` with the `roles` table. The `password` field is never included in the response.
+
+This endpoint requires a valid JWT token and that the caller's role has the `GET /api/v1/users/:id` permission registered in the database.
+
+---
+
+## Endpoint
+
+```
+GET /api/v1/users/:id
+```
+
+**Base URL:** `http://localhost:{PORT}/api/v1`
+
+**Authentication:** JWT Bearer token + role permission `GET /api/v1/users/:id`
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The numeric ID of the user to retrieve. Must match the pattern `^\d+$` (one or more digits, no other characters). This is validated by `validate.middleware` against `getByIdSchema` before the controller is reached.
+</ParamField>
+
+---
+
+## Example Request
+
+```bash
+curl -X GET http://localhost:3000/api/v1/users/7 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Returned when the token is valid, the role has the required permission, and a user with the given ID exists in the database.
+
+```json
+{
+  "success": true,
+  "message": "Usuario obtenido exitosamente",
+  "data": {
+    "idUser": 7,
+    "full_name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "roleId": 2,
+    "roleName": "editor",
+    "roleDescription": "Can read and edit content"
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Usuario obtenido exitosamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The matched user record.
+
+  <Expandable title="data fields">
+    <ResponseField name="data.idUser" type="number">
+      User's unique auto-incremented primary key.
+    </ResponseField>
+
+    <ResponseField name="data.full_name" type="string">
+      User's full display name.
+    </ResponseField>
+
+    <ResponseField name="data.email" type="string">
+      User's unique email address.
+    </ResponseField>
+
+    <ResponseField name="data.roleId" type="number">
+      Foreign key referencing the `roles` table. `null` if no role is assigned.
+    </ResponseField>
+
+    <ResponseField name="data.roleName" type="string | null">
+      Role name joined from the `roles` table. `null` if the user has no assigned role.
+    </ResponseField>
+
+    <ResponseField name="data.roleDescription" type="string | null">
+      Role description joined from the `roles` table. `null` if the user has no assigned role.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### 400 Bad Request — Invalid ID Format
+
+Returned when the `:id` path segment does not match `^\d+$` (e.g., letters, special characters, or a floating-point number are supplied).
+
+```json
+{
+  "success": false,
+  "message": "El campo 'id' no cumple con el patrón requerido",
+  "data": null
+}
+```
+
+---
+
+### 401 Unauthorized
+
+Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado",
+  "data": null
+}
+```
+
+---
+
+### 403 Forbidden
+
+Returned when the JWT is valid but the caller's role does not have `GET /api/v1/users/:id` listed in the `permissionXRole` table.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso",
+  "data": null
+}
+```
+
+---
+
+### 404 Not Found
+
+Returned when no user with the given numeric ID exists in the `users` table. The service throws a `NotFoundError` which the global error middleware maps to HTTP 404.
+
+```json
+{
+  "success": false,
+  "message": "Usuario con id 7 no encontrado",
+  "data": null
+}
+```
+
+---
+
+## Permission Setup
+
+For a role to access this endpoint, a record must exist in the `permissions` table with `nameUri = "GET /api/v1/users/:id"` and that permission must be linked to the role in the `permissionXRole` pivot table.
+
+The `roles.middleware` derives the URI automatically from the Express route pattern:
+
+```
+GET /api/v1/users/:id
+```
+
+Note that `/:id` is the route pattern, not the resolved value — the literal string `:id` must be stored as the `nameUri` in the `permissions` table.

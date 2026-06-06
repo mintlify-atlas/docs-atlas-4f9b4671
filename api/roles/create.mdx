@@ -1,0 +1,129 @@
+---
+title: "POST /api/v1/roles — Create a New Role"
+sidebarTitle: "Create Role"
+description: "Creates a new role with a name and optional description. Requires JWT and the POST /api/v1/roles permission. Returns the created role including its generated ID."
+---
+
+Creates a new role in the system. The `roleName` must be unique — attempting to create a role with a name that already exists returns `409 Conflict`. On success, the full role record including its auto-generated `idRole` is returned.
+
+After a successful creation, a `data:changed` Socket.IO event is broadcast to all connected clients so their UI can refresh the roles list.
+
+## Authentication
+
+Requires a valid JWT **and** the `POST /api/v1/roles` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `POST`
+**Path:** `/api/v1/roles`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`.
+</ParamField>
+
+### Body
+
+<ParamField body="roleName" type="string" required>
+  The unique name for the role. Must be between **2 and 50 characters**.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional human-readable description explaining the role's purpose.
+</ParamField>
+
+```json Example Request Body
+{
+  "roleName": "Moderator",
+  "description": "Can review and approve user-submitted content"
+}
+```
+
+## Response
+
+### 201 Created
+
+Returns the newly created role object.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The created role record.
+
+  <Expandable title="Role object">
+    <ResponseField name="idRole" type="number">
+      The auto-generated unique numeric ID assigned to the new role.
+    </ResponseField>
+
+    <ResponseField name="roleName" type="string">
+      The name of the created role.
+    </ResponseField>
+
+    <ResponseField name="description" type="string | null">
+      The description of the role, or `null` if not provided.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Rol creado exitosamente",
+  "data": {
+    "idRole": 4,
+    "roleName": "Moderator",
+    "description": "Can review and approve user-submitted content"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | Validation failed — `roleName` is missing, too short, or too long. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `POST /api/v1/roles` permission. |
+| `409 Conflict` | A role with the given `roleName` already exists. |
+
+```json 409 Conflict
+{
+  "success": false,
+  "message": "El rol 'Moderator' ya existe",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X POST http://localhost:3000/api/v1/roles \
+  -H "Authorization: Bearer <your_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roleName": "Moderator",
+    "description": "Can review and approve user-submitted content"
+  }'
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `roles:create` | `start` → `processing` → `success` |
+| `data:changed` | All clients | `roles:create` | Broadcast with the new role object |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

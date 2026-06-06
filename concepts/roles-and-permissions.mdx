@@ -1,0 +1,144 @@
+---
+title: "Role-Based Access Control and Permissions in SEAM API"
+sidebarTitle: "Roles & Permissions"
+description: "SEAM API enforces access control using roles and URI-based permissions. Each route checks whether the authenticated user's role has the required permission in the database."
+---
+
+SEAM API uses a database-driven Role-Based Access Control (RBAC) model. Every authenticated user carries a `roleId` in their JWT payload. Before a protected controller runs, `roles.middleware.js` looks up whether that role has been granted permission to call the exact route being requested. If no matching permission is found, the request is rejected with a `403 Forbidden` error — even if the token itself is valid.
+
+## How the permission model works
+
+Permissions are stored in a `permissions` table. Each permission has a `nameUri` column that identifies the route it covers. Roles are stored in a `roles` table, and the many-to-many relationship between roles and permissions lives in `permissionXRole`.
+
+When a request arrives, `roles.middleware.js` constructs a `nameUri` string from the HTTP method and the Express route pattern, then queries the database to see whether the user's role has been granted that URI:
+
+```js
+// roles.middleware.js
+const routePath = req.route.path === '/' ? '' : req.route.path;
+const nameUri = `${req.method} ${req.baseUrl}${routePath}`;
+
+const [rows] = await pool.query(
+  `SELECT 1
+   FROM permissionXRole pr
+   INNER JOIN permissions p ON pr.permissionId = p.idPermission
+   WHERE pr.roleId = ?
+     AND LOWER(p.nameUri) = LOWER(?)
+   LIMIT 1`,
+  [roleId, nameUri],
+);
+
+if (rows.length === 0) {
+  return next(new ForbiddenError('No tienes permisos para acceder a este recurso'));
+}
+```
+
+The comparison uses `LOWER()` on both sides, so `nameUri` values are case-insensitive. A route-root path (`/`) is treated as an empty string to avoid double slashes (e.g., `/api/v1/users` instead of `/api/v1/users/`).
+
+## The `nameUri` pattern format
+
+The `nameUri` is always `METHOD /api/v1/<module>[/:param]`. It must match **exactly** what the middleware constructs at runtime — including the param placeholder (e.g., `:id`), not an actual ID value.
+
+| Route | Constructed `nameUri` |
+|---|---|
+| `GET /api/v1/users` | `GET /api/v1/users` |
+| `GET /api/v1/users/:id` | `GET /api/v1/users/:id` |
+| `PUT /api/v1/users/:id` | `PUT /api/v1/users/:id` |
+| `DELETE /api/v1/users/:id` | `DELETE /api/v1/users/:id` |
+| `POST /api/v1/roles` | `POST /api/v1/roles` |
+| `PUT /api/v1/roles/:idRole` | `PUT /api/v1/roles/:idRole` |
+| `DELETE /api/v1/roles/:idRole` | `DELETE /api/v1/roles/:idRole` |
+| `POST /api/v1/permission/register` | `POST /api/v1/permission/register` |
+| `POST /api/v1/permission/assign` | `POST /api/v1/permission/assign` |
+| `DELETE /api/v1/permission/unassign` | `DELETE /api/v1/permission/unassign` |
+| `DELETE /api/v1/permission/:id` | `DELETE /api/v1/permission/:id` |
+| `POST /api/v1/sidebar` | `POST /api/v1/sidebar` |
+| `PUT /api/v1/sidebar/:idItem` | `PUT /api/v1/sidebar/:idItem` |
+| `DELETE /api/v1/sidebar/:idItem` | `DELETE /api/v1/sidebar/:idItem` |
+| `POST /api/v1/sidebar/:idItem/role/:idRole` | `POST /api/v1/sidebar/:idItem/role/:idRole` |
+
+## Auth-only vs. auth + roles routes
+
+Not every protected route requires a permission check. Some read-only or utility routes only validate the JWT — they skip `roles.middleware.js` entirely. All mutation routes (create, update, delete, assign) require both.
+
+| Route | Middleware chain |
+|---|---|
+| `GET /api/v1/roles` | `auth` only |
+| `GET /api/v1/permission` | `auth` only |
+| `GET /api/v1/permission/getByRoleId` | `auth` only |
+| `GET /api/v1/permission/getByNameUri` | `auth` only |
+| All other protected routes | `auth` → `roles` |
+
+The middleware chain is wired at the route level:
+
+```js
+// auth only — useful for populating dropdowns in any authenticated UI
+router.get('/', auth, rolesController.getAllRoles);
+
+// auth + roles — mutation requires an explicit permission
+router.post('/', auth, roles, validate(addRoleSchema), rolesController.addRole);
+router.put('/:idRole', auth, roles, validate(idRoleSchema, 'params'), rolesController.editRole);
+router.delete('/:idRole', auth, roles, validate(idRoleSchema, 'params'), rolesController.deleteRole);
+```
+
+## Setting up permissions for a new role
+
+<Steps>
+  <Step title="Create the role">
+    Call `POST /api/v1/roles` with a `roleName` and optional `description`. Save the `idRole` returned in the response.
+
+    ```bash
+    curl -X POST http://localhost:3000/api/v1/roles \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{"roleName": "editor", "description": "Can manage content"}'
+    ```
+  </Step>
+
+  <Step title="Register each permission">
+    For every route the new role should be allowed to call, register a permission record using `POST /api/v1/permission/register`. The `nameUri` must match the pattern shown in the table above exactly.
+
+    ```bash
+    curl -X POST http://localhost:3000/api/v1/permission/register \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "nameUri": "GET /api/v1/users",
+        "description": "List all users"
+      }'
+    ```
+
+    Repeat this step for each route the role needs (`PUT /api/v1/users/:id`, `DELETE /api/v1/users/:id`, etc.). Save the `idPermission` returned from each call.
+  </Step>
+
+  <Step title="Assign permissions to the role">
+    Link each permission to the role using `POST /api/v1/permission/assign`. Supply the `roleId` and the `permissionId` together.
+
+    ```bash
+    curl -X POST http://localhost:3000/api/v1/permission/assign \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{"roleId": 3, "permissionId": 7}'
+    ```
+
+    Repeat this step for every permission you want to grant to the role.
+  </Step>
+
+  <Step title="Verify access">
+    Log in as a user with the new role and attempt to call one of the assigned routes. The middleware will query `permissionXRole` and allow the request through. Attempting an unassigned route returns `403 Forbidden`.
+  </Step>
+</Steps>
+
+## Removing a permission from a role
+
+To revoke access without deleting the permission record, call `DELETE /api/v1/permission/unassign` with the same `roleId` and `permissionId` pair used when assigning:
+
+```bash
+curl -X DELETE http://localhost:3000/api/v1/permission/unassign \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"roleId": 3, "permissionId": 7}'
+```
+
+<Info>
+  Permission checks are always evaluated live against the database. There is no in-memory cache. Changes to `permissionXRole` take effect on the very next request — no server restart is required.
+</Info>

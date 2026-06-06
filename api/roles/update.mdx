@@ -1,0 +1,144 @@
+---
+title: "PUT /api/v1/roles/:idRole — Update a Role"
+sidebarTitle: "Update Role"
+description: "Updates the name or description of an existing role by its numeric ID. All body fields are optional. Requires JWT and the PUT /api/v1/roles/:idRole permission."
+---
+
+Updates one or both fields (`roleName`, `description`) of an existing role identified by its numeric `idRole` path parameter. All body fields are optional — only fields present in the request body are updated. If `roleName` is provided and differs from the current name, uniqueness is validated before saving.
+
+After a successful update, a `data:changed` Socket.IO event is broadcast to all connected clients.
+
+## Authentication
+
+Requires a valid JWT **and** the `PUT /api/v1/roles/:idRole` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `PUT`
+**Path:** `/api/v1/roles/:idRole`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="idRole" type="string" required>
+  The numeric ID of the role to update. Must match `^\d+$` (digits only).
+</ParamField>
+
+### Body
+
+All body fields are optional. At least one should be provided to make a meaningful request.
+
+<ParamField body="roleName" type="string">
+  New name for the role. Must be between **2 and 50 characters** and must not conflict with an existing role name.
+</ParamField>
+
+<ParamField body="description" type="string">
+  New description for the role. Pass an empty string to clear the current description.
+</ParamField>
+
+```json Example Request Body
+{
+  "roleName": "SuperModerator",
+  "description": "Elevated moderation privileges including ban capability"
+}
+```
+
+## Response
+
+### 200 OK
+
+Returns the full updated role object after applying the changes.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The updated role record as it now exists in the database.
+
+  <Expandable title="Role object">
+    <ResponseField name="idRole" type="number">
+      The unique numeric ID of the role.
+    </ResponseField>
+
+    <ResponseField name="roleName" type="string">
+      The (possibly updated) name of the role.
+    </ResponseField>
+
+    <ResponseField name="description" type="string | null">
+      The (possibly updated) description, or `null` if not set.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Rol actualizado exitosamente",
+  "data": {
+    "idRole": 4,
+    "roleName": "SuperModerator",
+    "description": "Elevated moderation privileges including ban capability"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | `idRole` is not numeric, or `roleName` fails length validation. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `PUT /api/v1/roles/:idRole` permission. |
+| `404 Not Found` | No role exists with the given `idRole`. |
+| `409 Conflict` | The provided `roleName` is already used by a different role. |
+
+```json 404 Not Found
+{
+  "success": false,
+  "message": "Rol con id 99 no encontrado",
+  "data": null
+}
+```
+
+```json 409 Conflict
+{
+  "success": false,
+  "message": "El nombre 'Admin' ya está en uso",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X PUT http://localhost:3000/api/v1/roles/4 \
+  -H "Authorization: Bearer <your_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roleName": "SuperModerator",
+    "description": "Elevated moderation privileges including ban capability"
+  }'
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `roles:update` | `start` → `processing` → `success` |
+| `data:changed` | All clients | `roles:update` | Broadcast with the updated role object |

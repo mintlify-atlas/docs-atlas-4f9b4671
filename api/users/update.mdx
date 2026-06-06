@@ -1,0 +1,206 @@
+---
+title: "PUT /api/v1/users/:id — Update a User Account"
+sidebarTitle: "Update User"
+description: "Updates one or more fields on a user account by ID. All body fields are optional — only provided fields are changed. Requires JWT and the PUT /api/v1/users/:id permission."
+---
+
+The `PUT /api/v1/users/:id` endpoint updates an existing user account. All request body fields are optional — only the fields included in the request body are modified; omitted fields remain unchanged. If a new `password` is provided it is re-hashed with bcrypt before being stored. The response returns the full updated user record.
+
+This endpoint requires a valid JWT token and that the caller's role has the `PUT /api/v1/users/:id` permission registered in the database.
+
+---
+
+## Endpoint
+
+```
+PUT /api/v1/users/:id
+```
+
+**Base URL:** `http://localhost:{PORT}/api/v1`
+
+**Authentication:** JWT Bearer token + role permission `PUT /api/v1/users/:id`
+
+---
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The numeric ID of the user to update. Must match the pattern `^\d+$`. Validated by `validate.middleware` against `getByIdSchema` before the controller runs.
+</ParamField>
+
+---
+
+## Request Body
+
+All fields are optional. At least one field should be provided to make a meaningful update.
+
+<ParamField body="full_name" type="string">
+  New full display name for the user. Must be between **2 and 100 characters** if provided.
+</ParamField>
+
+<ParamField body="email" type="string">
+  New email address. Must match the pattern `user@domain.tld`. If the address is already used by another user account the API returns `409`.
+</ParamField>
+
+<ParamField body="roleId" type="number">
+  ID of the new role to assign to the user. Must reference a valid row in the `roles` table.
+</ParamField>
+
+<ParamField body="password" type="string">
+  New plain-text password for the user. Must be between **6 and 100 characters** if provided. The value is re-hashed with bcrypt (12 salt rounds) before being written to the database; the plain-text value is never stored or returned.
+</ParamField>
+
+---
+
+## Example Request
+
+```bash
+curl -X PUT http://localhost:3000/api/v1/users/7 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "full_name": "Jane Smith",
+    "email": "jane.smith@example.com"
+  }'
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Returned when the user exists and the update is applied successfully. The response contains the full refreshed user record retrieved after the update.
+
+```json
+{
+  "success": true,
+  "message": "Usuario actualizado exitosamente",
+  "data": {
+    "idUser": 7,
+    "full_name": "Jane Smith",
+    "email": "jane.smith@example.com",
+    "roleId": 2,
+    "roleName": "editor",
+    "roleDescription": "Can read and edit content"
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Usuario actualizado exitosamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The full user record as it exists after the update. Fields mirror those returned by `GET /api/v1/users/:id`.
+
+  <Expandable title="data fields">
+    <ResponseField name="data.idUser" type="number">
+      User's unique primary key (unchanged).
+    </ResponseField>
+
+    <ResponseField name="data.full_name" type="string">
+      Updated full name.
+    </ResponseField>
+
+    <ResponseField name="data.email" type="string">
+      Updated email address.
+    </ResponseField>
+
+    <ResponseField name="data.roleId" type="number">
+      Updated role ID.
+    </ResponseField>
+
+    <ResponseField name="data.roleName" type="string | null">
+      Role name joined from the `roles` table.
+    </ResponseField>
+
+    <ResponseField name="data.roleDescription" type="string | null">
+      Role description joined from the `roles` table.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### 400 Bad Request — Validation Error
+
+Returned when the `:id` path parameter is not numeric, or when a provided body field fails its type, length, or pattern constraint from `editUserSchema`.
+
+```json
+{
+  "success": false,
+  "message": "El campo 'email' debe tener un formato de correo válido",
+  "data": null
+}
+```
+
+---
+
+### 401 Unauthorized
+
+Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado",
+  "data": null
+}
+```
+
+---
+
+### 403 Forbidden
+
+Returned when the JWT is valid but the caller's role does not have `PUT /api/v1/users/:id` in the `permissionXRole` table.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso",
+  "data": null
+}
+```
+
+---
+
+### 404 Not Found
+
+Returned when no user with the given ID is found. The service fetches the user before updating and throws `NotFoundError` if the record does not exist.
+
+```json
+{
+  "success": false,
+  "message": "Usuario con id 7 no encontrado",
+  "data": null
+}
+```
+
+---
+
+### 409 Conflict — Email Already In Use
+
+Returned when the supplied `email` is already registered to a different user account.
+
+```json
+{
+  "success": false,
+  "message": "El correo ya está en uso por otro usuario",
+  "data": null
+}
+```
+
+---
+
+## Permission Setup
+
+For a role to access this endpoint, a record must exist in the `permissions` table with `nameUri = "PUT /api/v1/users/:id"` and be linked to the role in `permissionXRole`. The `roles.middleware` derives this URI automatically from the Express route pattern:
+
+```
+PUT /api/v1/users/:id
+```

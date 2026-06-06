@@ -1,0 +1,103 @@
+---
+title: "GET /api/v1/permission — List All Permissions"
+sidebarTitle: "List Permissions"
+description: "Returns all registered permissions in the system. Requires JWT authentication only. Use this endpoint to discover available nameUri values for role assignment."
+---
+
+Returns every permission registered in the system, ordered by `idPermission`. No role permission check is applied — any authenticated user can call this endpoint. This is intentional so that administrators can browse available permissions when building role configurations.
+
+## Authentication
+
+Requires a valid JWT in the `Authorization` header. No specific role permission is needed.
+
+## Request
+
+**Method:** `GET`
+**Path:** `/api/v1/permission`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Returns all permission records in ascending `idPermission` order.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of permission objects.
+
+  <Expandable title="Permission object">
+    <ResponseField name="idPermission" type="number">
+      Unique numeric identifier for the permission.
+    </ResponseField>
+
+    <ResponseField name="nameUri" type="string">
+      The route pattern this permission guards, e.g. `GET /api/v1/users` or `DELETE /api/v1/roles/:idRole`.
+    </ResponseField>
+
+    <ResponseField name="description" type="string">
+      Human-readable description of what this permission allows.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Permisos registados obtenidos",
+  "data": [
+    {
+      "idPermission": 1,
+      "nameUri": "GET /api/v1/users",
+      "description": "List all users"
+    },
+    {
+      "idPermission": 2,
+      "nameUri": "POST /api/v1/roles",
+      "description": "Create a new role"
+    },
+    {
+      "idPermission": 3,
+      "nameUri": "DELETE /api/v1/users/:id",
+      "description": "Delete a user by ID"
+    }
+  ]
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `401 Unauthorized` | Missing or invalid JWT token. |
+
+```json 401 Unauthorized
+{
+  "success": false,
+  "message": "No autorizado",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X GET http://localhost:3000/api/v1/permission \
+  -H "Authorization: Bearer <your_token>"
+```
+
+## Socket.IO Events
+
+This is a read-only endpoint. A `data:changed` broadcast is **not** emitted. The requesting client receives `operation:progress` events for the `permissions:fetchAll` operation on their own socket only.

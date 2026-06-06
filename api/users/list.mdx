@@ -1,0 +1,162 @@
+---
+title: "GET /api/v1/users — List All Users"
+sidebarTitle: "List Users"
+description: "Returns a paginated list of all user accounts. Requires a valid JWT token and the GET /api/v1/users permission assigned to the caller's role."
+---
+
+The `GET /api/v1/users` endpoint returns a paginated collection of all user records stored in the system. Each user object includes their role name and role description, sourced from a `LEFT JOIN` with the `roles` table. The `password` field is never included in results.
+
+This endpoint requires a valid JWT token **and** that the caller's role has the `GET /api/v1/users` permission registered in the database.
+
+---
+
+## Endpoint
+
+```
+GET /api/v1/users
+```
+
+**Base URL:** `http://localhost:{PORT}/api/v1`
+
+**Authentication:** JWT Bearer token + role permission `GET /api/v1/users`
+
+---
+
+## Query Parameters
+
+| Parameter | Type   | Default | Description                                   |
+|-----------|--------|---------|-----------------------------------------------|
+| `page`    | number | `1`     | Page number (1-based). Parsed via `parseInt`. |
+| `limit`   | number | `50`    | Maximum number of records returned per page.  |
+
+The service computes `offset = (page - 1) * limit` before querying. If either parameter is absent or non-numeric, the defaults (`page=1`, `limit=50`) are applied.
+
+---
+
+## Example Request
+
+```bash
+curl -X GET "http://localhost:3000/api/v1/users?page=1&limit=20" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Returned when the request is authenticated, the role has the required permission, and the query executes successfully. The `data` array may be empty if no users exist within the requested page.
+
+```json
+{
+  "success": true,
+  "message": "Usuarios obtenidos exitosamente",
+  "data": [
+    {
+      "idUser": 1,
+      "full_name": "Alice Admin",
+      "email": "alice@example.com",
+      "roleId": 1,
+      "roleName": "admin",
+      "roleDescription": "Full system access"
+    },
+    {
+      "idUser": 7,
+      "full_name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "roleId": 2,
+      "roleName": "editor",
+      "roleDescription": "Can read and edit content"
+    }
+  ]
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Usuarios obtenidos exitosamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Ordered array of user objects. Sorted by `idUser` ascending.
+
+  <Expandable title="user object fields">
+    <ResponseField name="data[].idUser" type="number">
+      User's unique auto-incremented primary key.
+    </ResponseField>
+
+    <ResponseField name="data[].full_name" type="string">
+      User's full display name.
+    </ResponseField>
+
+    <ResponseField name="data[].email" type="string">
+      User's unique email address.
+    </ResponseField>
+
+    <ResponseField name="data[].roleId" type="number">
+      Foreign key referencing the `roles` table. `null` if no role is assigned.
+    </ResponseField>
+
+    <ResponseField name="data[].roleName" type="string | null">
+      Role name joined from the `roles` table. `null` if the user has no assigned role.
+    </ResponseField>
+
+    <ResponseField name="data[].roleDescription" type="string | null">
+      Role description joined from the `roles` table. `null` if the user has no assigned role.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### 401 Unauthorized
+
+Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+
+```json
+{
+  "success": false,
+  "message": "Token requerido",
+  "data": null
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "Token inválido o expirado",
+  "data": null
+}
+```
+
+---
+
+### 403 Forbidden
+
+Returned when the JWT is valid but the caller's role does not have `GET /api/v1/users` listed in the `permissionXRole` table.
+
+```json
+{
+  "success": false,
+  "message": "No tienes permisos para acceder a este recurso",
+  "data": null
+}
+```
+
+---
+
+## Permission Setup
+
+For a role to access this endpoint, a record must exist in the `permissions` table with `nameUri = "GET /api/v1/users"` and that permission must be linked to the role via the `permissionXRole` pivot table.
+
+The `roles.middleware` constructs the URI string automatically from `req.method` + `req.baseUrl` + `req.route.path` and performs a case-insensitive lookup:
+
+```
+GET /api/v1/users
+```
+
+Ensure the `nameUri` value stored in the database matches this exact pattern (case-insensitive match is applied in the query).

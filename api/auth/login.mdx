@@ -1,0 +1,242 @@
+---
+title: "POST /api/v1/auth/login — Authenticate and Get JWT Token"
+sidebarTitle: "Login"
+description: "Validates credentials, returns a signed JWT token plus the user's sidebar navigation items and URI permissions. Token must be included in all protected requests."
+---
+
+The `POST /api/v1/auth/login` endpoint authenticates a registered user by verifying their email and password. On success it returns a signed JSON Web Token, the token's expiry duration, the user object (without password), sidebar navigation items for the user's role, and a flat list of URI permission strings the role can access.
+
+No authentication token is required to call this endpoint.
+
+---
+
+## Endpoint
+
+```
+POST /api/v1/auth/login
+```
+
+**Base URL:** `http://localhost:{PORT}/api/v1`
+
+**Authentication:** None required
+
+---
+
+## Request Body
+
+<ParamField body="email" type="string" required>
+  The email address the user registered with.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's plain-text password. It is compared against the stored bcrypt hash using `bcrypt.compare`.
+</ParamField>
+
+---
+
+## Example Request
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "jane.doe@example.com",
+    "password": "securePass123"
+  }'
+```
+
+---
+
+## Responses
+
+### 200 OK
+
+Returned when credentials are valid. The response includes the JWT token, its expiry, the authenticated user, role-based sidebar items, and the full list of route permissions for the user's role.
+
+```json
+{
+  "success": true,
+  "message": "Login exitoso",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZFVzZXIiOjcsImVtYWlsIjoiamFuZS5kb2VAZXhhbXBsZS5jb20iLCJyb2xlSWQiOjIsInJvbGVOYW1lIjoiZWRpdG9yIiwiaWF0IjoxNzE5MDAwMDAwLCJleHAiOjE3MTkwMDM2MDB9.abc123",
+    "expiresIn": "1h",
+    "user": {
+      "idUser": 7,
+      "full_name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "roleId": 2,
+      "roleName": "editor"
+    },
+    "sidebarItems": [
+      {
+        "idItem": 1,
+        "nameItem": "Dashboard",
+        "iconItem": "home",
+        "route": "/dashboard"
+      },
+      {
+        "idItem": 3,
+        "nameItem": "Users",
+        "iconItem": "users",
+        "route": "/users"
+      }
+    ],
+    "permissions": [
+      "GET /api/v1/users",
+      "GET /api/v1/users/:id",
+      "PUT /api/v1/users/:id"
+    ]
+  }
+}
+```
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message: `"Login exitoso"`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The full authentication payload.
+
+  <Expandable title="data fields">
+    <ResponseField name="data.token" type="string">
+      A signed JWT string. Include this in the `Authorization` header of every protected request as `Bearer <token>`.
+    </ResponseField>
+
+    <ResponseField name="data.expiresIn" type="string">
+      Token validity duration sourced from the `JWT_EXPIRES_IN` environment variable (e.g., `"1h"`, `"7d"`).
+    </ResponseField>
+
+    <ResponseField name="data.user" type="object">
+      The authenticated user record. The `password` field is always omitted.
+
+      <Expandable title="user fields">
+        <ResponseField name="data.user.idUser" type="number">
+          Unique numeric identifier for the user.
+        </ResponseField>
+
+        <ResponseField name="data.user.full_name" type="string">
+          User's full display name.
+        </ResponseField>
+
+        <ResponseField name="data.user.email" type="string">
+          User's registered email address.
+        </ResponseField>
+
+        <ResponseField name="data.user.roleId" type="number">
+          Numeric ID of the role assigned to the user.
+        </ResponseField>
+
+        <ResponseField name="data.user.roleName" type="string">
+          Human-readable name of the role (joined from the `roles` table).
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="data.sidebarItems" type="array">
+      Ordered list of navigation items the user's role is permitted to see in the frontend sidebar. Each item is sourced from the `sidebarItems` table via the `roleXItem` pivot.
+
+      <Expandable title="sidebarItems fields">
+        <ResponseField name="data.sidebarItems[].idItem" type="number">
+          Primary key of the sidebar item.
+        </ResponseField>
+
+        <ResponseField name="data.sidebarItems[].nameItem" type="string">
+          Display label for the navigation entry.
+        </ResponseField>
+
+        <ResponseField name="data.sidebarItems[].iconItem" type="string">
+          Icon identifier string used by the frontend icon library.
+        </ResponseField>
+
+        <ResponseField name="data.sidebarItems[].route" type="string">
+          Frontend route path the navigation item links to.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="data.permissions" type="array of strings">
+      Flat array of `nameUri` strings representing every API route the user's role can call (e.g., `"GET /api/v1/users"`, `"PUT /api/v1/users/:id"`). Sourced from the `permissions` table via the `permissionXRole` pivot.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### 400 Bad Request — Validation Error
+
+Returned when `email` or `password` fields are missing or fail type validation enforced by `validate.middleware` against `loginSchema`.
+
+```json
+{
+  "success": false,
+  "message": "El campo 'email' es requerido",
+  "data": null
+}
+```
+
+---
+
+### 401 Unauthorized — Invalid Credentials
+
+Returned when no user exists with the provided email, or the password does not match the stored bcrypt hash.
+
+```json
+{
+  "success": false,
+  "message": "Credenciales inválidas",
+  "data": null
+}
+```
+
+---
+
+## JWT Payload
+
+The token is signed with `HS256` (default for `jsonwebtoken`). After verification, the decoded payload contains:
+
+| Field      | Type   | Description                                    |
+|------------|--------|------------------------------------------------|
+| `idUser`   | number | User's primary key                             |
+| `email`    | string | User's email address                           |
+| `roleId`   | number | Numeric role ID                                |
+| `roleName` | string | Role name string                               |
+| `iat`      | number | Issued-at timestamp (Unix seconds)             |
+| `exp`      | number | Expiration timestamp (Unix seconds)            |
+
+---
+
+## Socket.IO Events
+
+During login the service emits real-time progress events on the `auth:login` channel:
+
+| Order | Status       | Payload message                        |
+|-------|--------------|----------------------------------------|
+| 1     | `start`      | `"Iniciando autenticación..."`         |
+| 2     | `processing` | `"Verificando credenciales..."`        |
+| 3     | `processing` | `"Cargando permisos y menú..."`        |
+| 4     | `processing` | `"Generando token de sesión..."`       |
+| 5     | `success`    | `"Sesión iniciada exitosamente"`       |
+
+```js
+// Client-side listener example
+socket.on("auth:login", (event) => {
+  console.log(event.status, event.message);
+  // { status: "success", message: "Sesión iniciada exitosamente" }
+});
+```
+
+---
+
+<Tip>
+  Store the `token` value in a secure location (e.g., an `httpOnly` cookie or a secure in-memory store — avoid `localStorage` in sensitive applications). Include it in all subsequent protected API requests via the `Authorization` header:
+
+  ```
+  Authorization: Bearer <token>
+  ```
+
+  Once the token expires (see `expiresIn`), the user must log in again to obtain a new one.
+</Tip>

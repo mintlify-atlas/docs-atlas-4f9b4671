@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "SEAM API",
+  "projectType": "api-service",
+  "projectName": "SEAM API",
+  "projectDescription": "A REST API built with Node.js, Express, and MySQL that provides JWT authentication, role-based access control, permission management, and real-time events via Socket.IO.",
   "theme": "luma",
-  "colors": {
-    "primary": "#2563EB",
-    "light": "#DBEAFE",
-    "dark": "#1E3A8A"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/TheSerchCp/SEAM-API"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/TheSerchCp/SEAM-API"
-    }
-  },
+  "primaryColor": "#2563EB",
+  "lightColor": "#DBEAFE",
+  "darkColor": "#1E3A8A",
   "navigation": {
     "tabs": [
       {
@@ -102,5 +90,42 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "JWT-based authentication with bcrypt password hashing",
+    "Role-based access control (RBAC) enforced at the middleware level",
+    "Fine-grained permission system with URI-based permission matching",
+    "Real-time progress events via Socket.IO (operation:progress, data:changed)",
+    "Centralized error handling with MySQL error mapping",
+    "Request validation middleware with configurable schema rules",
+    "AsyncLocalStorage-based per-request context propagation",
+    "Sidebar navigation management with per-role item assignment",
+    "Graceful shutdown with MySQL connection pool cleanup"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/auth/register",
+    "POST /api/v1/auth/login",
+    "GET /api/v1/users",
+    "GET /api/v1/users/:id",
+    "PUT /api/v1/users/:id",
+    "DELETE /api/v1/users/:id",
+    "GET /api/v1/roles",
+    "POST /api/v1/roles",
+    "PUT /api/v1/roles/:idRole",
+    "DELETE /api/v1/roles/:idRole",
+    "GET /api/v1/permission",
+    "POST /api/v1/permission/register",
+    "GET /api/v1/permission/getByRoleId",
+    "GET /api/v1/permission/getByNameUri",
+    "POST /api/v1/permission/assign",
+    "DELETE /api/v1/permission/unassign",
+    "DELETE /api/v1/permission/:id",
+    "GET /api/v1/sidebar",
+    "POST /api/v1/sidebar",
+    "PUT /api/v1/sidebar/:idItem",
+    "DELETE /api/v1/sidebar/:idItem",
+    "POST /api/v1/sidebar/:idItem/role/:idRole",
+    "Socket.IO event: operation:progress",
+    "Socket.IO event: data:changed"
+  ]
 }

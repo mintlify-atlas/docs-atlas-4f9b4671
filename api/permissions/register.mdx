@@ -1,0 +1,141 @@
+---
+title: "POST /api/v1/permission/register — Register a New Permission"
+sidebarTitle: "Register Permission"
+description: "Registers a new URI-based permission. The nameUri must exactly match the route pattern used by roles.middleware, such as GET /api/v1/users or PUT /api/v1/roles/:idRole."
+---
+
+Registers a new permission in the system by recording a `nameUri` route pattern and its description. The `roles.middleware` performs a **case-insensitive** SQL lookup against this table on every protected request, so the `nameUri` you register must exactly match the HTTP method and path pattern of the route you want to guard.
+
+After a successful registration, a `data:changed` Socket.IO event is broadcast to all connected clients.
+
+<Note>
+  Valid `nameUri` values follow the pattern `METHOD /api/v1/path`, where METHOD is uppercase and the path matches the Express route exactly — including any named parameters in `:param` format. Examples:
+
+  - `GET /api/v1/users`
+  - `POST /api/v1/roles`
+  - `PUT /api/v1/roles/:idRole`
+  - `DELETE /api/v1/users/:id`
+  - `POST /api/v1/permission/assign`
+</Note>
+
+<Warning>
+  The middleware matches permissions using `LOWER(nameUri) = LOWER(?)`, making the comparison case-insensitive in MySQL. However, the stored value should follow the `UPPERCASE_METHOD /lowercase/path` convention consistently to avoid confusion and duplicate entries that differ only in casing.
+</Warning>
+
+## Authentication
+
+Requires a valid JWT **and** the `POST /api/v1/permission/register` permission assigned to the caller's role.
+
+## Request
+
+**Method:** `POST`
+**Path:** `/api/v1/permission/register`
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from the login endpoint. Format: `Bearer <token>`
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`.
+</ParamField>
+
+### Body
+
+<ParamField body="nameUri" type="string" required>
+  The route pattern to protect. Must be between **2 and 100 characters**. Should follow the format `METHOD /api/v1/path`, e.g. `DELETE /api/v1/roles/:idRole`.
+</ParamField>
+
+<ParamField body="description" type="string" required>
+  Human-readable description of what access this permission grants. Required (unlike the `description` field on roles).
+</ParamField>
+
+```json Example Request Body
+{
+  "nameUri": "DELETE /api/v1/users/:id",
+  "description": "Allows permanently deleting a user by their numeric ID"
+}
+```
+
+## Response
+
+### 201 Created
+
+Returns the newly created permission record.
+
+<ResponseField name="success" type="boolean">
+  Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The registered permission record.
+
+  <Expandable title="Permission object">
+    <ResponseField name="idPermission" type="number">
+      Auto-generated unique numeric ID for the permission.
+    </ResponseField>
+
+    <ResponseField name="nameUri" type="string">
+      The stored route pattern exactly as provided.
+    </ResponseField>
+
+    <ResponseField name="description" type="string">
+      The stored description.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "success": true,
+  "message": "Permiso registrado exitosamente",
+  "data": {
+    "idPermission": 12,
+    "nameUri": "DELETE /api/v1/users/:id",
+    "description": "Allows permanently deleting a user by their numeric ID"
+  }
+}
+```
+
+### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | Validation failed — a required field is missing or `nameUri` is outside the 2–100 character range. |
+| `401 Unauthorized` | Missing or invalid JWT token. |
+| `403 Forbidden` | Authenticated user's role lacks the `POST /api/v1/permission/register` permission. |
+| `409 Conflict` | A permission with the same `nameUri` (case-insensitive) already exists. |
+
+```json 409 Conflict
+{
+  "success": false,
+  "message": "El permiso ya se encuentra registrado.",
+  "data": null
+}
+```
+
+## Code Example
+
+```bash cURL
+curl -X POST http://localhost:3000/api/v1/permission/register \
+  -H "Authorization: Bearer <your_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nameUri": "DELETE /api/v1/users/:id",
+    "description": "Allows permanently deleting a user by their numeric ID"
+  }'
+```
+
+## Socket.IO Events
+
+On success, the server emits the following events:
+
+| Event | Target | Operation | Status |
+|-------|--------|-----------|--------|
+| `operation:progress` | Requesting socket | `permissions:create` | `start` → `processing` → `success` |
+| `data:changed` | All clients | `permissions:create` | Broadcast with the new permission object |
