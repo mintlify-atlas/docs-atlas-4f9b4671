@@ -1,7 +1,7 @@
 ---
 title: "Validate Request Inputs with SEAM API's Schema Middleware"
 sidebarTitle: "Request Validation"
-description: "SEAM API's validate middleware enforces field types, lengths, and patterns on request body, params, and query string before the request reaches any controller."
+description: "SEAM API's validate middleware checks field rules on body, params, or query before any controller runs. Covers all 7 rule types with real schema examples."
 ---
 
 SEAM API ships a lightweight schema-based validation middleware that intercepts incoming requests and checks every configured field before a controller is ever invoked. If any field fails its rules, the request is rejected immediately with a `400 Bad Request` containing all error messages joined into a single response. Nothing invalid reaches the database layer.

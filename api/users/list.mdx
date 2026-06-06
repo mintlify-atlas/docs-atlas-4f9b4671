@@ -1,10 +1,10 @@
 ---
-title: "GET /api/v1/users — List All Users"
+title: "GET /api/v1/users — List All Users in the System"
 sidebarTitle: "List Users"
-description: "Returns a paginated list of all user accounts. Requires a valid JWT token and the GET /api/v1/users permission assigned to the caller's role."
+description: "Returns a list of all user accounts with role information. Requires a valid JWT token and the GET /api/v1/users permission on the caller's role."
 ---
 
-The `GET /api/v1/users` endpoint returns a paginated collection of all user records stored in the system. Each user object includes their role name and role description, sourced from a `LEFT JOIN` with the `roles` table. The `password` field is never included in results.
+The `GET /api/v1/users` endpoint returns a collection of all user records stored in the system. Each user object includes their role name and role description, sourced from a `LEFT JOIN` with the `roles` table. The `password` field is never included in results.
 
 This endpoint requires a valid JWT token **and** that the caller's role has the `GET /api/v1/users` permission registered in the database.
 
@@ -22,21 +22,10 @@ GET /api/v1/users
 
 ---
 
-## Query Parameters
-
-| Parameter | Type   | Default | Description                                   |
-|-----------|--------|---------|-----------------------------------------------|
-| `page`    | number | `1`     | Page number (1-based). Parsed via `parseInt`. |
-| `limit`   | number | `50`    | Maximum number of records returned per page.  |
-
-The service computes `offset = (page - 1) * limit` before querying. If either parameter is absent or non-numeric, the defaults (`page=1`, `limit=50`) are applied.
-
----
-
 ## Example Request
 
 ```bash
-curl -X GET "http://localhost:3000/api/v1/users?page=1&limit=20" \
+curl -X GET http://localhost:3000/api/v1/users \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
@@ -46,7 +35,7 @@ curl -X GET "http://localhost:3000/api/v1/users?page=1&limit=20" \
 
 ### 200 OK
 
-Returned when the request is authenticated, the role has the required permission, and the query executes successfully. The `data` array may be empty if no users exist within the requested page.
+Returned when the request is authenticated, the role has the required permission, and the query executes successfully. The `data` array may be empty if no users exist.
 
 ```json
 {

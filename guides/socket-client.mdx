@@ -1,7 +1,7 @@
 ---
 title: "Connect a Socket.IO Client to SEAM API for Live Updates"
 sidebarTitle: "Socket Client"
-description: "Step-by-step guide to connecting a Socket.IO client to SEAM API, handling authentication, listening to operation:progress events, and reacting to data:changed broadcasts."
+description: "Authenticate a Socket.IO client with JWT and listen to operation:progress and data:changed events to drive loaders and real-time UI updates in SEAM API."
 ---
 
 SEAM API emits real-time events over Socket.IO so that your frontend can show loading feedback while HTTP operations run and instantly reflect data changes across every open tab or connected user. Every authenticated connection is placed in a private user room, and two event channels drive the UI lifecycle: `operation:progress` for per-operation status updates and `data:changed` for global data synchronization. This guide walks through the complete client setup.
@@ -216,7 +216,7 @@ function refreshDataForOperation(operation, data) {
 
 Every authenticated socket is automatically placed in the room `user:{userId}` on connection. This means events emitted with `emitToUser(userId, ...)` reach every session that user has open — desktop browser, mobile tab, and so on — without the client needing to join any room manually.
 
-```
+```text
 Socket connection authenticated
   └─ socket.user.idUser = 42
        └─ socket.join('user:42')

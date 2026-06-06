@@ -1,10 +1,10 @@
 ---
-title: "GET /api/v1/permission/getByNameUri — Find Permission by URI"
+title: "Get Permission by URI — GET /api/v1/permission/getByNameUri"
 sidebarTitle: "Get by URI"
-description: "Looks up a single permission by its nameUri query parameter. Useful for verifying whether a specific route permission exists in the system."
+description: "Looks up permissions by nameUri query parameter using a case-insensitive SQL search. Returns 404 if no match is found. Requires JWT authentication only."
 ---
 
-Finds and returns a permission record whose `nameUri` matches the supplied query parameter. The lookup is **case-insensitive** (backed by `LOWER()` in SQL), so `GET /api/v1/users` and `get /api/v1/users` resolve to the same record. If no match is found, a `404` is returned.
+Finds and returns permission records whose `nameUri` matches the supplied query parameter. The lookup is **case-insensitive** (backed by `LOWER()` in SQL), so `GET /api/v1/users` and `get /api/v1/users` resolve to the same records. If no match is found, a `404` is returned.
 
 This endpoint is useful when you need to check whether a route is already protected before calling [Register Permission](/api/permissions/register), or to retrieve the `idPermission` for use in [Assign Permission](/api/permissions/assign).
 
@@ -33,18 +33,18 @@ Requires a valid JWT in the `Authorization` header. No specific role permission 
 
 ### 200 OK
 
-Returns the matching permission record.
+Returns the matching permission records as an array.
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Permiso obtenido por nombre."`.
 </ResponseField>
 
-<ResponseField name="data" type="object">
-  The matched permission record.
+<ResponseField name="data" type="array">
+  Array of permission objects whose `nameUri` matches the query (case-insensitive). Typically contains one element.
 
   <Expandable title="Permission object">
     <ResponseField name="idPermission" type="number">
@@ -65,11 +65,13 @@ Returns the matching permission record.
 {
   "success": true,
   "message": "Permiso obtenido por nombre.",
-  "data": {
-    "idPermission": 5,
-    "nameUri": "DELETE /api/v1/roles/:idRole",
-    "description": "Allows deleting a role by its numeric ID"
-  }
+  "data": [
+    {
+      "idPermission": 5,
+      "nameUri": "DELETE /api/v1/roles/:idRole",
+      "description": "Allows deleting a role by its numeric ID"
+    }
+  ]
 }
 ```
 
@@ -108,3 +110,7 @@ curl -X GET \
 ## Socket.IO Events
 
 This is a read-only endpoint. A `data:changed` broadcast is **not** emitted. The requesting client receives `operation:progress` events for the `permissions:fetchByUri` operation on their own socket only.
+
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
+| `operation:progress` | Requesting socket | `permissions:fetchByUri` | `start` → `success` |

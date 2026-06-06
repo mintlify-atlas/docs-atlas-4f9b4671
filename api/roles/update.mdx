@@ -1,10 +1,10 @@
 ---
-title: "PUT /api/v1/roles/:idRole — Update a Role"
+title: "Update an Existing Role — PUT /api/v1/roles/:idRole"
 sidebarTitle: "Update Role"
-description: "Updates the name or description of an existing role by its numeric ID. All body fields are optional. Requires JWT and the PUT /api/v1/roles/:idRole permission."
+description: "Updates the name or description of an existing role by its numeric ID. All fields are optional. Requires JWT and the PUT /api/v1/roles/:idRole permission."
 ---
 
-Updates one or both fields (`roleName`, `description`) of an existing role identified by its numeric `idRole` path parameter. All body fields are optional — only fields present in the request body are updated. If `roleName` is provided and differs from the current name, uniqueness is validated before saving.
+Updates one or both fields (`roleName`, `description`) of an existing role identified by its numeric `idRole` path parameter. All body fields are optional — only fields present in the request body are applied. If `roleName` is provided and differs from the current value, its uniqueness is validated (case-insensitive) before saving. The full updated record is returned.
 
 After a successful update, a `data:changed` Socket.IO event is broadcast to all connected clients.
 
@@ -30,7 +30,7 @@ Requires a valid JWT **and** the `PUT /api/v1/roles/:idRole` permission assigned
 ### Path Parameters
 
 <ParamField path="idRole" type="string" required>
-  The numeric ID of the role to update. Must match `^\d+$` (digits only).
+  The numeric ID of the role to update. Must match `^\d+$` (digits only, no decimals or negative values).
 </ParamField>
 
 ### Body
@@ -38,7 +38,7 @@ Requires a valid JWT **and** the `PUT /api/v1/roles/:idRole` permission assigned
 All body fields are optional. At least one should be provided to make a meaningful request.
 
 <ParamField body="roleName" type="string">
-  New name for the role. Must be between **2 and 50 characters** and must not conflict with an existing role name.
+  New name for the role. Must be between **2 and 50 characters** and must not conflict with an existing role name (case-insensitive).
 </ParamField>
 
 <ParamField body="description" type="string">
@@ -56,18 +56,18 @@ All body fields are optional. At least one should be provided to make a meaningf
 
 ### 200 OK
 
-Returns the full updated role object after applying the changes.
+Returns the full updated role object as it now exists in the database.
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Rol actualizado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="object">
-  The updated role record as it now exists in the database.
+  The updated role record fetched from the database after the update is applied.
 
   <Expandable title="Role object">
     <ResponseField name="idRole" type="number">
@@ -138,7 +138,9 @@ curl -X PUT http://localhost:3000/api/v1/roles/4 \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `roles:update` | `start` → `processing` → `success` |
-| `data:changed` | All clients | `roles:update` | Broadcast with the updated role object |
+| `data:changed` | All connected clients | `roles:update` | Broadcast with the updated role object |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

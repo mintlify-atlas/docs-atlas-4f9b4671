@@ -1,12 +1,12 @@
 ---
-title: "POST /api/v1/permission/assign — Assign a Permission to a Role"
+title: "Assign Permission to a Role — POST /api/v1/permission/assign"
 sidebarTitle: "Assign Permission"
-description: "Links a permission to a role, granting access to that route for all users with that role. Requires JWT and the POST /api/v1/permission/assign permission."
+description: "Links a permission to a role via permissionXRole. Requires JWT and POST /api/v1/permission/assign permission. Duplicate entries are silently ignored."
 ---
 
 Creates an entry in the `permissionXRole` pivot table that links a `permissionId` to a `roleId`. Once assigned, all users whose role matches `roleId` are granted access to the route identified by that permission. The assignment takes effect immediately — subsequent requests from users with that role will pass the `roles.middleware` check for the associated route.
 
-The underlying `INSERT IGNORE` statement means that if the assignment already exists, no error is raised and the operation is silently treated as a no-op at the database level. However, if the combination is truly new, a `data:changed` Socket.IO event is broadcast to all connected clients.
+The underlying `INSERT IGNORE` statement means that if the assignment already exists, no error is raised and the operation is treated as a no-op at the database level. A `data:changed` Socket.IO event is broadcast regardless.
 
 ## Authentication
 
@@ -55,7 +55,7 @@ Returned when the assignment is successfully created (or silently ignored as a d
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable confirmation message.
+  Human-readable confirmation message. Value: `"Permiso asignado al rol exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="null">
@@ -103,7 +103,9 @@ curl -X POST http://localhost:3000/api/v1/permission/assign \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `permissions:assign` | `start` → `success` |
-| `data:changed` | All clients | `permissions:assign` | Broadcast (no payload data) |
+| `data:changed` | All connected clients | `permissions:assign` | Broadcast with no data payload (`null`) |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

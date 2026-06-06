@@ -1,7 +1,7 @@
 ---
-title: "Get Started with SEAM API in 5 Minutes"
+title: "Quickstart: Run SEAM API and Make Your First Request"
 sidebarTitle: "Quickstart"
-description: "Install SEAM API, configure environment variables, start the server, and make your first authenticated request — all in under 5 minutes."
+description: "Install SEAM API, configure environment variables, start the server, and make your first authenticated request — all in under five minutes."
 ---
 
 This guide walks you through getting SEAM API running locally — from cloning the repository to making your first authenticated HTTP request with a real JWT token. By the end you will have a working server, a registered user, and a valid token you can use to explore every protected endpoint.
@@ -138,14 +138,15 @@ The login response includes the JWT, its expiry, the user object, the role-filte
       "idUser": 1,
       "full_name": "John Doe",
       "email": "john@example.com",
-      "roleId": 1
+      "roleId": 1,
+      "roleName": "admin"
     },
     "sidebarItems": [
-      { "label": "Dashboard", "path": "/dashboard", "icon": "home" }
+      { "idItem": 1, "nameItem": "Dashboard", "iconItem": "home", "route": "/dashboard" }
     ],
     "permissions": [
-      { "nameUri": "/users", "method": "GET" },
-      { "nameUri": "/roles", "method": "GET" }
+      "GET /api/v1/users",
+      "POST /api/v1/roles"
     ]
   }
 }

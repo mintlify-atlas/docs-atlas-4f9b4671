@@ -1,15 +1,15 @@
 ---
-title: "DELETE /api/v1/roles/:idRole — Delete a Role"
+title: "Delete a Role Permanently — DELETE /api/v1/roles/:idRole"
 sidebarTitle: "Delete Role"
-description: "Permanently deletes a role by its numeric ID. Requires JWT and the DELETE /api/v1/roles/:idRole permission. Fails if users or permissions are still assigned to this role."
+description: "Permanently deletes a role by numeric ID. Requires JWT and DELETE /api/v1/roles/:idRole permission. Returns 409 if a FK constraint blocks deletion."
 ---
 
-Permanently removes a role from the system by its numeric `idRole`. The role must exist and must not be referenced by any foreign-key–constrained records (such as user-role assignments) — if it is, the database will reject the deletion with a `409 Conflict`.
+Permanently removes a role from the system by its numeric `idRole`. The role must exist — a missing role returns `404 Not Found`. If any database records still reference this role via a foreign-key constraint (such as user-role assignments), the database raises an `ER_ROW_IS_REFERENCED_2` error and the deletion fails with `409 Conflict`.
 
 After a successful deletion, a `data:changed` Socket.IO event is broadcast to all connected clients.
 
 <Warning>
-  Deleting a role does **not** cascade to user accounts automatically at the application layer. If any users currently hold this role, the database will raise an `ER_ROW_IS_REFERENCED_2` foreign-key constraint error and the deletion will fail with `409 Conflict`. Unassign all users from the role before deleting it. Similarly, all permission assignments for the role should be removed first via the [Unassign Permission](/api/permissions/unassign) endpoint.
+  Deleting a role does **not** automatically cascade to user accounts at the application layer. If any users currently hold this role, the database will raise a foreign-key constraint error and the deletion will fail with `409 Conflict`. Unassign all users from the role before deleting it. You should also remove all permission assignments for the role first via the [Unassign Permission](/api/permissions/unassign) endpoint.
 </Warning>
 
 ## Authentication
@@ -30,7 +30,7 @@ Requires a valid JWT **and** the `DELETE /api/v1/roles/:idRole` permission assig
 ### Path Parameters
 
 <ParamField path="idRole" type="string" required>
-  The numeric ID of the role to delete. Must match `^\d+$` (digits only).
+  The numeric ID of the role to delete. Must match `^\d+$` (digits only, no decimals or negative values).
 </ParamField>
 
 ## Response
@@ -44,7 +44,7 @@ Returns `null` for `data` on a successful deletion.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable confirmation message.
+  Human-readable confirmation message. Value: `"Rol eliminado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="null">
@@ -67,7 +67,7 @@ Returns `null` for `data` on a successful deletion.
 | `401 Unauthorized` | Missing or invalid JWT token. |
 | `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/roles/:idRole` permission. |
 | `404 Not Found` | No role exists with the given `idRole`. |
-| `409 Conflict` | The role is still referenced by users or permission assignments (`ER_ROW_IS_REFERENCED_2`). |
+| `409 Conflict` | The role is still referenced by other records (`ER_ROW_IS_REFERENCED_2` foreign-key constraint). |
 
 ```json 404 Not Found
 {
@@ -96,7 +96,9 @@ curl -X DELETE http://localhost:3000/api/v1/roles/4 \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `roles:delete` | `start` → `processing` → `success` |
-| `data:changed` | All clients | `roles:delete` | Broadcast with `{ idRole }` of the deleted role |
+| `data:changed` | All connected clients | `roles:delete` | Broadcast with `{ idRole }` of the deleted role |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

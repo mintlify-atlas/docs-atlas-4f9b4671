@@ -1,7 +1,7 @@
 ---
 title: "Error Handling in SEAM API: HTTP Codes and Error Classes"
 sidebarTitle: "Error Handling"
-description: "SEAM API uses a centralized error handler that maps application errors and MySQL errors to structured JSON responses. Learn about error types, status codes, and safe error messages."
+description: "SEAM API maps HTTP error classes and MySQL codes to a safe JSON envelope. Learn the error hierarchy, status codes, and how errors are surfaced."
 ---
 
 SEAM API processes every thrown error through a two-middleware pipeline registered at the very end of `app.js`. The first middleware catches requests to unknown routes and converts them into a typed `NotFoundError`. The second middleware — the global `errorHandler` — inspects every error that reaches it, maps it to the right HTTP status code, emits a Socket.IO notification to the requesting client, and responds with a consistent JSON envelope. Application internals are never exposed to the caller.

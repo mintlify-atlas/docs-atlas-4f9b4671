@@ -1,10 +1,10 @@
 ---
 title: "POST /api/v1/auth/login — Authenticate and Get JWT Token"
 sidebarTitle: "Login"
-description: "Validates credentials, returns a signed JWT token plus the user's sidebar navigation items and URI permissions. Token must be included in all protected requests."
+description: "Validates email and password, then returns a signed JWT token, sidebar items, and URI permission strings for the authenticated user's role."
 ---
 
-The `POST /api/v1/auth/login` endpoint authenticates a registered user by verifying their email and password. On success it returns a signed JSON Web Token, the token's expiry duration, the user object (without password), sidebar navigation items for the user's role, and a flat list of URI permission strings the role can access.
+The `POST /api/v1/auth/login` endpoint authenticates a registered user by verifying their email and password against the stored bcrypt hash. On success it returns a signed JSON Web Token, the token's expiry duration, the user object (without password), sidebar navigation items for the user's role, and a flat list of URI permission strings the role can access.
 
 No authentication token is required to call this endpoint.
 
@@ -51,7 +51,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 
 ### 200 OK
 
-Returned when credentials are valid. The response includes the JWT token, its expiry, the authenticated user, role-based sidebar items, and the full list of route permissions for the user's role.
+Returned when credentials are valid. The response includes the JWT token, its expiry, the authenticated user, role-based sidebar items, and the full list of `nameUri` permission strings for the user's role.
 
 ```json
 {
@@ -182,7 +182,7 @@ Returned when `email` or `password` fields are missing or fail type validation e
 
 ### 401 Unauthorized — Invalid Credentials
 
-Returned when no user exists with the provided email, or the password does not match the stored bcrypt hash.
+Returned when no user exists with the provided email, or the password does not match the stored bcrypt hash. The service throws `UnauthorizedError('Credenciales inválidas')`.
 
 ```json
 {
@@ -198,14 +198,14 @@ Returned when no user exists with the provided email, or the password does not m
 
 The token is signed with `HS256` (default for `jsonwebtoken`). After verification, the decoded payload contains:
 
-| Field      | Type   | Description                                    |
-|------------|--------|------------------------------------------------|
-| `idUser`   | number | User's primary key                             |
-| `email`    | string | User's email address                           |
-| `roleId`   | number | Numeric role ID                                |
-| `roleName` | string | Role name string                               |
-| `iat`      | number | Issued-at timestamp (Unix seconds)             |
-| `exp`      | number | Expiration timestamp (Unix seconds)            |
+| Field      | Type   | Description                         |
+|------------|--------|-------------------------------------|
+| `idUser`   | number | User's primary key                  |
+| `email`    | string | User's email address                |
+| `roleId`   | number | Numeric role ID                     |
+| `roleName` | string | Role name string                    |
+| `iat`      | number | Issued-at timestamp (Unix seconds)  |
+| `exp`      | number | Expiration timestamp (Unix seconds) |
 
 ---
 
@@ -213,13 +213,13 @@ The token is signed with `HS256` (default for `jsonwebtoken`). After verificatio
 
 During login the service emits real-time progress events on the `auth:login` channel:
 
-| Order | Status       | Payload message                        |
-|-------|--------------|----------------------------------------|
-| 1     | `start`      | `"Iniciando autenticación..."`         |
-| 2     | `processing` | `"Verificando credenciales..."`        |
-| 3     | `processing` | `"Cargando permisos y menú..."`        |
-| 4     | `processing` | `"Generando token de sesión..."`       |
-| 5     | `success`    | `"Sesión iniciada exitosamente"`       |
+| Order | Status       | Payload message                  |
+|-------|--------------|----------------------------------|
+| 1     | `start`      | `"Iniciando autenticación..."`   |
+| 2     | `processing` | `"Verificando credenciales..."`  |
+| 3     | `processing` | `"Cargando permisos y menú..."`  |
+| 4     | `processing` | `"Generando token de sesión..."` |
+| 5     | `success`    | `"Sesión iniciada exitosamente"` |
 
 ```js
 // Client-side listener example

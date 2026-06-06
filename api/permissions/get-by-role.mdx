@@ -1,10 +1,10 @@
 ---
-title: "GET /api/v1/permission/getByRoleId — Get Permissions for a Role"
+title: "Get Permissions by Role — GET /api/v1/permission/getByRoleId"
 sidebarTitle: "Get by Role"
-description: "Returns all permissions assigned to a specific role, identified by its numeric roleId query parameter. Requires JWT authentication."
+description: "Returns all permissions assigned to a role, identified by roleId query param. Requires JWT only. Returns an empty array if no permissions are assigned."
 ---
 
-Returns all permissions currently assigned to the role identified by `roleId`. The query is performed against the `permissionXRole` pivot table, joining back to the `permissions` table for the full record. If the role has no assigned permissions, an empty array is returned (not a 404).
+Returns all permissions currently assigned to the role identified by `roleId`. The query joins the `permissionXRole` pivot table with the `permissions` table to return full permission records. If the role has no assigned permissions, an empty array is returned — this endpoint does not return `404` for an unrecognised `roleId`.
 
 ## Authentication
 
@@ -31,18 +31,18 @@ Requires a valid JWT in the `Authorization` header. No specific role permission 
 
 ### 200 OK
 
-Returns the list of permissions assigned to the specified role.
+Returns the list of permissions assigned to the specified role, ordered by `idPermission`.
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Permiso obtenido por rol."`.
 </ResponseField>
 
 <ResponseField name="data" type="array">
-  Array of permission objects assigned to the role. Empty array if the role has no permissions.
+  Array of permission objects assigned to the role. Returns an empty array if the role has no permissions or does not exist.
 
   <Expandable title="Permission object">
     <ResponseField name="idPermission" type="number">
@@ -78,7 +78,7 @@ Returns the list of permissions assigned to the specified role.
 }
 ```
 
-```json Empty Role (No Permissions Assigned)
+```json Role With No Permissions Assigned
 {
   "success": true,
   "message": "Permiso obtenido por rol.",
@@ -92,7 +92,6 @@ Returns the list of permissions assigned to the specified role.
 |--------|-------------|
 | `400 Bad Request` | `roleId` is missing or is not a numeric string. |
 | `401 Unauthorized` | Missing or invalid JWT token. |
-| `404 Not Found` | Not returned by this endpoint — an unknown `roleId` returns an empty array. |
 
 ```json 400 Bad Request
 {
@@ -113,3 +112,7 @@ curl -X GET \
 ## Socket.IO Events
 
 This is a read-only endpoint. A `data:changed` broadcast is **not** emitted. The requesting client receives `operation:progress` events for the `permissions:fetchByRole` operation on their own socket only.
+
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
+| `operation:progress` | Requesting socket | `permissions:fetchByRole` | `start` → `success` |

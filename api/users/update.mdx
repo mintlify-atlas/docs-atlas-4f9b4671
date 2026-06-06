@@ -1,10 +1,10 @@
 ---
-title: "PUT /api/v1/users/:id — Update a User Account"
+title: "PUT /api/v1/users/:id — Update User Account by ID"
 sidebarTitle: "Update User"
-description: "Updates one or more fields on a user account by ID. All body fields are optional — only provided fields are changed. Requires JWT and the PUT /api/v1/users/:id permission."
+description: "Updates one or more fields on an existing user account. All body fields are optional. Requires JWT and the PUT /api/v1/users/:id role permission."
 ---
 
-The `PUT /api/v1/users/:id` endpoint updates an existing user account. All request body fields are optional — only the fields included in the request body are modified; omitted fields remain unchanged. If a new `password` is provided it is re-hashed with bcrypt before being stored. The response returns the full updated user record.
+The `PUT /api/v1/users/:id` endpoint updates an existing user account. All request body fields are optional — only the fields included in the request body are modified; omitted fields remain unchanged. If a new `password` is provided it is re-hashed with bcrypt (12 salt rounds) before being stored. The response returns the full updated user record fetched after the update.
 
 This endpoint requires a valid JWT token and that the caller's role has the `PUT /api/v1/users/:id` permission registered in the database.
 

@@ -1,7 +1,7 @@
 ---
-title: "DELETE /api/v1/permission/:id — Delete a Permission"
+title: "Delete a Permission — DELETE /api/v1/permission/:id"
 sidebarTitle: "Delete Permission"
-description: "Permanently deletes a permission record by its numeric ID. Also removes all role assignments for this permission. Requires JWT and the DELETE /api/v1/permission/:id permission."
+description: "Permanently deletes a permission and role assignments in a transaction. Requires JWT and DELETE /api/v1/permission/:id permission. Returns 404 if missing."
 ---
 
 Permanently removes a permission from the system by its numeric `id`. The deletion runs inside a **database transaction**: all entries in the `permissionXRole` pivot table referencing this permission are deleted first, then the permission record itself is removed. If the permission does not exist, a `404` is returned.
@@ -28,7 +28,7 @@ Requires a valid JWT **and** the `DELETE /api/v1/permission/:id` permission assi
 ### Path Parameters
 
 <ParamField path="id" type="string" required>
-  The numeric ID of the permission to delete. Must match `^\d+$` (digits only).
+  The numeric ID of the permission to delete. Must match `^\d+$` (digits only, no decimals or negative values).
 </ParamField>
 
 ## Response
@@ -42,7 +42,7 @@ Returns `null` for `data` on a successful deletion.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable confirmation message.
+  Human-readable confirmation message. Value: `"Permiso eliminado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="null">
@@ -65,7 +65,6 @@ Returns `null` for `data` on a successful deletion.
 | `401 Unauthorized` | Missing or invalid JWT token. |
 | `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/permission/:id` permission. |
 | `404 Not Found` | No permission with the given `id` exists. |
-| `409 Conflict` | Unexpected constraint error during the transactional deletion. |
 
 ```json 404 Not Found
 {
@@ -86,7 +85,9 @@ curl -X DELETE http://localhost:3000/api/v1/permission/5 \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `permissions:delete` | `start` → `success` |
-| `data:changed` | All clients | `permissions:delete` | Broadcast with the deleted permission `id` |
+| `data:changed` | All connected clients | `permissions:delete` | Broadcast with no data payload (`null`) |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

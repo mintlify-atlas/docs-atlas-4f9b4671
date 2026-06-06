@@ -4,7 +4,7 @@ sidebarTitle: "Update Item"
 description: "Updates the name, icon, or route of a sidebar navigation item by its numeric ID. All body fields are optional. Requires JWT and the PUT /api/v1/sidebar/:idItem permission."
 ---
 
-The `PUT /api/v1/sidebar/:idItem` endpoint performs a partial update on an existing sidebar navigation item. All three body fields — `nameItem`, `iconItem`, and `route` — are optional, so you can update only the specific field you need without touching the rest. The endpoint first verifies the item exists and returns a `404` if it does not, then applies the changes and returns the full updated record.
+The `PUT /api/v1/sidebar/:idItem` endpoint performs a partial update on an existing sidebar navigation item. All three body fields — `nameItem`, `iconItem`, and `route` — are optional, so you can update only the specific field you need without touching the rest. The endpoint first verifies the item exists and returns a `404` if it does not, then applies the changes and returns the full updated record fetched fresh from the database.
 
 ## Authentication
 
@@ -54,11 +54,12 @@ All body fields are optional. Include only the fields you want to change. Sendin
 
 ### 200 — Success
 
-Returns the full updated sidebar item record after the changes are applied.
+Returns the full updated sidebar item record after the changes are applied. The response reflects all current field values fetched via `SELECT * FROM sidebarItems WHERE idItem = ?`.
 
 ```json
 {
   "success": true,
+  "message": "Sidebar item actualizado exitosamente",
   "data": {
     "idItem": 4,
     "nameItem": "System Settings",
@@ -70,6 +71,10 @@ Returns the full updated sidebar item record after the changes are applied.
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Sidebar item actualizado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="object">
@@ -127,7 +132,7 @@ Returned when the authenticated user's role does not have the `PUT /api/v1/sideb
 
 ### 404 — Not Found
 
-Returned when no sidebar item with the given `idItem` exists in the database.
+Returned when no sidebar item with the given `idItem` exists in the database. The check is performed by `findItemById` before the update is applied.
 
 ```json
 {

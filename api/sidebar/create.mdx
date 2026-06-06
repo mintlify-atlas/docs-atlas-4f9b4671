@@ -52,6 +52,7 @@ Returns the newly created sidebar item, including its auto-generated `idItem`.
 ```json
 {
   "success": true,
+  "message": "Sidebar item creado exitosamente",
   "data": {
     "idItem": 7,
     "nameItem": "Reports",
@@ -65,11 +66,15 @@ Returns the newly created sidebar item, including its auto-generated `idItem`.
   Always `true` for successful responses.
 </ResponseField>
 
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Sidebar item creado exitosamente"`.
+</ResponseField>
+
 <ResponseField name="data" type="object">
   The newly created sidebar item object.
 
   <ResponseField name="data.idItem" type="integer">
-    Auto-generated numeric ID for the new item. Use this value in subsequent calls to assign the item to a role.
+    Auto-generated numeric ID for the new item (`insertId` from the database). Use this value in subsequent calls to assign the item to a role.
   </ResponseField>
 
   <ResponseField name="data.nameItem" type="string">
@@ -132,7 +137,7 @@ curl -X POST http://localhost:{PORT}/api/v1/sidebar \
 ```
 
 <Note>
-  After creating an item, it is not visible to any user yet. Use `POST /api/v1/sidebar/:idItem/role/:idRole` to assign the new item to one or more roles. Users with those roles will then see it in their sidebar at next login or when calling `GET /api/v1/sidebar`.
+  After creating an item, it is not visible to any user yet. Use `POST /api/v1/sidebar/:idItem/role/:idRole` to assign the new item to one or more roles. Users with those roles will then see it in their sidebar at next login — sidebar items are delivered as part of the `POST /api/v1/auth/login` response under the `sidebarItems` key.
 </Note>
 
 ## Real-time Events

@@ -1,10 +1,10 @@
 ---
 title: "POST /api/v1/auth/register — Register a New User"
 sidebarTitle: "Register"
-description: "Creates a new user account with a hashed password and assigns a role. Returns the created user object without the password field. Does not require authentication."
+description: "Creates a new user account, hashes the password with bcrypt, and assigns a role. Returns the user record without the password field."
 ---
 
-The `POST /api/v1/auth/register` endpoint creates a new user account in the system. It validates the request body against `registerSchema`, hashes the provided password using bcrypt, and stores the user record with the specified role. The response returns the created user object with the password field removed.
+The `POST /api/v1/auth/register` endpoint creates a new user account in the system. It validates the request body against `registerSchema`, hashes the provided password using bcrypt with 12 salt rounds, and stores the user record with the specified role. The response returns the created user object with the `password` field removed.
 
 No authentication token is required to call this endpoint.
 
@@ -37,11 +37,11 @@ POST /api/v1/auth/register
 </ParamField>
 
 <ParamField body="roleId" type="number" required>
-  The numeric ID of an existing role to assign to this user (foreign key to the `roles` table). Providing a non-existent `roleId` returns a `400` error due to a foreign key constraint violation.
+  The numeric ID of an existing role to assign to this user (foreign key to the `roles` table). Providing a non-existent `roleId` returns a `400` error due to a foreign key constraint violation (`ER_NO_REFERENCED_ROW_2`).
 </ParamField>
 
 <Note>
-  The `password` field is hashed with **bcrypt using 12 salt rounds** before being written to the database. The hashed value is never included in any API response.
+  The `password` field is hashed with **bcrypt using 12 salt rounds** (`SALT_ROUNDS = 12`) before being written to the database. The hashed value is never included in any API response.
 </Note>
 
 ---
@@ -128,7 +128,7 @@ Returned when one or more required fields are missing, fail type checks, or viol
 
 ### 409 Conflict — Email Already Registered
 
-Returned when the supplied `email` already exists in the `users` table. The service checks for a duplicate before inserting, or the database raises `ER_DUP_ENTRY` on the unique index.
+Returned when the supplied `email` already exists in the `users` table. The service checks for a duplicate before inserting (`ER_DUP_ENTRY`).
 
 ```json
 {
@@ -144,13 +144,13 @@ Returned when the supplied `email` already exists in the `users` table. The serv
 
 During registration the service emits real-time progress events on the `auth:register` channel. Clients connected to the Socket.IO server receive these in sequence:
 
-| Order | Status       | Payload message                           |
-|-------|--------------|-------------------------------------------|
-| 1     | `start`      | `"Iniciando registro de usuario..."`      |
+| Order | Status       | Payload message                              |
+|-------|--------------|----------------------------------------------|
+| 1     | `start`      | `"Iniciando registro de usuario..."`         |
 | 2     | `processing` | `"Verificando disponibilidad del correo..."` |
-| 3     | `processing` | `"Procesando contraseña..."`              |
-| 4     | `processing` | `"Guardando usuario..."`                  |
-| 5     | `success`    | `"Usuario registrado exitosamente"`       |
+| 3     | `processing` | `"Procesando contraseña..."`                 |
+| 4     | `processing` | `"Guardando usuario..."`                     |
+| 5     | `success`    | `"Usuario registrado exitosamente"`          |
 
 ```js
 // Client-side listener example

@@ -1,7 +1,7 @@
 ---
-title: "Authenticate with SEAM API Using JWT Tokens"
+title: "JWT Authentication in SEAM API: Tokens, Headers, Sockets"
 sidebarTitle: "Authentication"
-description: "SEAM API uses JWT tokens for authentication. Learn how tokens are issued at login, verified by middleware, and passed in requests using the Authorization header."
+description: "SEAM API uses JWT for authentication. Learn how tokens are issued at login, verified on each request, and forwarded via the Authorization header."
 ---
 
 Every protected endpoint in SEAM API requires a valid JSON Web Token (JWT). Tokens are issued when a user logs in, cryptographically signed with the server's `JWT_SECRET`, and carry enough information about the user so that no database round-trip is needed to identify who is making a request.

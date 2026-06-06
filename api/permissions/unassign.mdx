@@ -1,10 +1,12 @@
 ---
-title: "DELETE /api/v1/permission/unassign — Remove a Permission from a Role"
+title: "Revoke Role Permission — DELETE /api/v1/permission/unassign"
 sidebarTitle: "Unassign Permission"
-description: "Removes the link between a permission and a role, revoking access to that route for users with that role. Requires JWT and the DELETE /api/v1/permission/unassign permission."
+description: "Removes the link between a permission and a role, revoking route access immediately. Requires JWT and DELETE /api/v1/permission/unassign permission."
 ---
 
 Removes the entry from the `permissionXRole` pivot table that links a `permissionId` to a `roleId`. After the unassignment, the `roles.middleware` will deny any request to the associated route made by users whose only qualifying role was this one. Access is revoked immediately on the next request — no restart required.
+
+If the `roleId`/`permissionId` combination does not exist in the pivot table, the operation succeeds silently (no error is raised).
 
 <Warning>
   Removing a permission from a role takes effect **immediately**. Any user currently authenticated with that role will be denied access to the associated route on their very next request, even if they are mid-session. Ensure you communicate maintenance windows or confirm that no active users rely on this permission before revoking it.
@@ -50,14 +52,14 @@ Requires a valid JWT **and** the `DELETE /api/v1/permission/unassign` permission
 
 ### 200 OK
 
-Returned when the unassignment completes. If the combination did not exist, the operation succeeds silently (no error is raised).
+Returned when the unassignment completes. If the combination did not exist, the operation succeeds silently.
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable confirmation message.
+  Human-readable confirmation message. Value: `"Permiso removido del rol exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="null">
@@ -79,7 +81,6 @@ Returned when the unassignment completes. If the combination did not exist, the 
 | `400 Bad Request` | `roleId` or `permissionId` is missing or not a JSON number type. |
 | `401 Unauthorized` | Missing or invalid JWT token. |
 | `403 Forbidden` | Authenticated user's role lacks the `DELETE /api/v1/permission/unassign` permission. |
-| `404 Not Found` | Reserved for service-level checks; not currently raised by this endpoint (non-existent pairs are silently ignored). |
 
 ```json 400 Bad Request
 {
@@ -105,7 +106,9 @@ curl -X DELETE http://localhost:3000/api/v1/permission/unassign \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `permissions:unassign` | `start` → `success` |
-| `data:changed` | All clients | `permissions:unassign` | Broadcast (no payload data) |
+| `data:changed` | All connected clients | `permissions:unassign` | Broadcast with no data payload (`null`) |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

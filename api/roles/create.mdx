@@ -1,10 +1,10 @@
 ---
-title: "POST /api/v1/roles — Create a New Role"
+title: "Create a New System Role — POST /api/v1/roles Endpoint"
 sidebarTitle: "Create Role"
-description: "Creates a new role with a name and optional description. Requires JWT and the POST /api/v1/roles permission. Returns the created role including its generated ID."
+description: "Creates a role with a unique name and optional description. Requires JWT and POST /api/v1/roles permission. Returns the new role with its generated ID."
 ---
 
-Creates a new role in the system. The `roleName` must be unique — attempting to create a role with a name that already exists returns `409 Conflict`. On success, the full role record including its auto-generated `idRole` is returned.
+Creates a new role in the system. The `roleName` must be unique — attempting to create a role with a name that already exists (case-insensitive) returns `409 Conflict`. On success, the full role record including its auto-generated `idRole` is returned.
 
 After a successful creation, a `data:changed` Socket.IO event is broadcast to all connected clients so their UI can refresh the roles list.
 
@@ -30,11 +30,11 @@ Requires a valid JWT **and** the `POST /api/v1/roles` permission assigned to the
 ### Body
 
 <ParamField body="roleName" type="string" required>
-  The unique name for the role. Must be between **2 and 50 characters**.
+  The unique name for the role. Must be between **2 and 50 characters**. The uniqueness check is case-insensitive.
 </ParamField>
 
 <ParamField body="description" type="string">
-  Optional human-readable description explaining the role's purpose.
+  Optional human-readable description explaining the role's purpose. Stored as `null` if omitted.
 </ParamField>
 
 ```json Example Request Body
@@ -55,7 +55,7 @@ Returns the newly created role object.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Rol creado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="object">
@@ -95,7 +95,7 @@ Returns the newly created role object.
 | `400 Bad Request` | Validation failed — `roleName` is missing, too short, or too long. |
 | `401 Unauthorized` | Missing or invalid JWT token. |
 | `403 Forbidden` | Authenticated user's role lacks the `POST /api/v1/roles` permission. |
-| `409 Conflict` | A role with the given `roleName` already exists. |
+| `409 Conflict` | A role with the given `roleName` already exists (case-insensitive match). |
 
 ```json 409 Conflict
 {
@@ -121,9 +121,9 @@ curl -X POST http://localhost:3000/api/v1/roles \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `roles:create` | `start` → `processing` → `success` |
-| `data:changed` | All clients | `roles:create` | Broadcast with the new role object |
+| `data:changed` | All connected clients | `roles:create` | Broadcast with the new role object |
 
 Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

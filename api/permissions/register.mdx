@@ -1,7 +1,7 @@
 ---
-title: "POST /api/v1/permission/register — Register a New Permission"
+title: "Register a Permission — POST /api/v1/permission/register"
 sidebarTitle: "Register Permission"
-description: "Registers a new URI-based permission. The nameUri must exactly match the route pattern used by roles.middleware, such as GET /api/v1/users or PUT /api/v1/roles/:idRole."
+description: "Registers a new URI-based permission with nameUri and description. Both fields are required. Requires JWT and POST /api/v1/permission/register permission."
 ---
 
 Registers a new permission in the system by recording a `nameUri` route pattern and its description. The `roles.middleware` performs a **case-insensitive** SQL lookup against this table on every protected request, so the `nameUri` you register must exactly match the HTTP method and path pattern of the route you want to guard.
@@ -69,7 +69,7 @@ Returns the newly created permission record.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Permiso registrado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="object">
@@ -135,7 +135,9 @@ curl -X POST http://localhost:3000/api/v1/permission/register \
 
 On success, the server emits the following events:
 
-| Event | Target | Operation | Status |
-|-------|--------|-----------|--------|
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
 | `operation:progress` | Requesting socket | `permissions:create` | `start` → `processing` → `success` |
-| `data:changed` | All clients | `permissions:create` | Broadcast with the new permission object |
+| `data:changed` | All connected clients | `permissions:create` | Broadcast with the new permission object |
+
+Clients listening to `data:changed` can use the `initiatorSocketId` field in the payload to skip redundant UI updates if they already know the result from the HTTP response.

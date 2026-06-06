@@ -1,10 +1,10 @@
 ---
-title: "GET /api/v1/roles — List All Roles"
+title: "List All Roles in the System — GET /api/v1/roles API"
 sidebarTitle: "List Roles"
-description: "Returns all roles in the system. Requires JWT authentication only — no role permission check — making it available to any authenticated user for use in forms."
+description: "Returns all roles registered in the system, up to 200 records. Requires JWT authentication only — no role-permission check is applied."
 ---
 
-Returns all roles currently registered in the system, up to a maximum of 200 records. This endpoint intentionally skips the roles middleware permission check so that any authenticated user can fetch the role list — for example, to populate a dropdown in a user-creation form.
+Returns all roles currently registered in the system, up to a maximum of 200 records. This endpoint intentionally skips the roles-middleware permission check so that any authenticated user can fetch the role list — for example, to populate a dropdown in a user-creation form.
 
 ## Authentication
 
@@ -25,14 +25,14 @@ Requires a valid JWT in the `Authorization` header. No specific role permission 
 
 ### 200 OK
 
-Returns the full list of roles.
+Returns the full list of roles, ordered as stored in the database (up to 200 records).
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Roles obtenidos"`.
 </ResponseField>
 
 <ResponseField name="data" type="array">
@@ -100,8 +100,4 @@ curl -X GET http://localhost:3000/api/v1/roles \
 
 ## Socket.IO Events
 
-This is a read-only endpoint. No `data:changed` broadcast is emitted. The requesting client receives the following `operation:progress` sequence on their socket:
-
-| Event | Operation | Status |
-|-------|-----------|--------|
-| `operation:progress` | — | No socket events emitted for list operations |
+This is a read-only endpoint. No socket events are emitted — neither `operation:progress` nor `data:changed` are sent for this operation.

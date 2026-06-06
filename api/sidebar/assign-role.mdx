@@ -4,7 +4,7 @@ sidebarTitle: "Assign to Role"
 description: "Links a sidebar navigation item to a role, making it visible in the sidebar for all users with that role. Requires JWT and the POST /api/v1/sidebar/:idItem/role/:idRole permission."
 ---
 
-The `POST /api/v1/sidebar/:idItem/role/:idRole` endpoint creates an entry in the `roleXItem` pivot table, linking a sidebar navigation item to a role. Once assigned, every user whose `roleId` matches the given role will have that item included in the sidebar array returned at login and from `GET /api/v1/sidebar`. The endpoint validates that both the item and the role exist before inserting the assignment, and returns a conflict error if the same pair is already linked.
+The `POST /api/v1/sidebar/:idItem/role/:idRole` endpoint creates an entry in the `roleXItem` pivot table, linking a sidebar navigation item to a role. Once assigned, every user whose `roleId` matches the given role will have that item included in the `sidebarItems` array returned in their login response. The endpoint validates that both the item and the role exist before inserting the assignment, and returns a conflict error if the same pair is already linked.
 
 ## Authentication
 
@@ -28,7 +28,7 @@ This endpoint accepts no request body — all inputs are provided as path parame
 </ParamField>
 
 <ParamField path="idRole" type="string" required>
-  Numeric ID of the role to assign the item to. Must match `^\d+$`. The role must already exist in the `roles` table. Use `GET /api/v1/roles` to look up available role IDs.
+  Numeric ID of the role to assign the item to. Must match `^\d+$`. The role must already exist in the `roles` table.
 </ParamField>
 
 ## Response
@@ -40,6 +40,7 @@ The item was successfully assigned to the role. The response data includes the I
 ```json
 {
   "success": true,
+  "message": "Item asignado al rol exitosamente",
   "data": {
     "idRole": 2,
     "idItem": 7,
@@ -51,6 +52,10 @@ The item was successfully assigned to the role. The response data includes the I
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Item asignado al rol exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="object">
@@ -65,11 +70,11 @@ The item was successfully assigned to the role. The response data includes the I
   </ResponseField>
 
   <ResponseField name="data.roleName" type="string">
-    Display name of the role (e.g. `"Manager"`).
+    Display name of the role sourced from the `roles` table (e.g. `"Manager"`).
   </ResponseField>
 
   <ResponseField name="data.nameItem" type="string">
-    Display label of the sidebar item (e.g. `"Reports"`).
+    Display label of the sidebar item sourced from the `sidebarItems` table (e.g. `"Reports"`).
   </ResponseField>
 </ResponseField>
 
@@ -108,7 +113,7 @@ Returned when the authenticated user's role does not have the `POST /api/v1/side
 
 ### 404 — Not Found
 
-Returned when either the specified role or the specified sidebar item does not exist.
+Returned when either the specified role or the specified sidebar item does not exist. Each is validated independently by `findRoleById` and `findItemById` before the assignment is created.
 
 ```json
 {
@@ -126,7 +131,7 @@ Returned when either the specified role or the specified sidebar item does not e
 
 ### 409 — Conflict
 
-Returned when the item is already assigned to the specified role. The `roleXItem` table is checked before insertion to prevent duplicates.
+Returned when the item is already assigned to the specified role. The `roleXItem` table is checked via `SELECT 1 FROM roleXItem WHERE roleId = ? AND itemId = ?` before insertion to prevent duplicates.
 
 ```json
 {
@@ -143,7 +148,7 @@ curl -X POST http://localhost:{PORT}/api/v1/sidebar/7/role/2 \
 ```
 
 <Note>
-  Once an item is assigned to a role, all users with that role will see it in their sidebar. The updated item list is reflected at the user's next login (via the `sidebarItems` field in the login response) and immediately on any subsequent `GET /api/v1/sidebar` call with a valid token.
+  Once an item is assigned to a role, all users with that role will see it in their sidebar. The updated item list is reflected at the user's next login in the `sidebarItems` field of the `POST /api/v1/auth/login` response.
 </Note>
 
 ## Full Workflow
@@ -152,7 +157,7 @@ Follow these steps to create a sidebar item and make it visible to users of a sp
 
 <Steps>
   <Step title="Create the sidebar item">
-    Call `POST /api/v1/sidebar` with the item's name, optional icon, and optional route. Note the `idItem` returned in the response — you will need it in step 3.
+    Call `POST /api/v1/sidebar` with the item's name, optional icon, and optional route. Note the `idItem` returned in the response — you will need it in step 2.
 
     ```bash
     curl -X POST http://localhost:{PORT}/api/v1/sidebar \
@@ -162,17 +167,8 @@ Follow these steps to create a sidebar item and make it visible to users of a sp
     ```
   </Step>
 
-  <Step title="Find the target role ID">
-    Call `GET /api/v1/roles` to retrieve the list of roles and identify the `idRole` of the role you want to assign the item to.
-
-    ```bash
-    curl -X GET http://localhost:{PORT}/api/v1/roles \
-      -H "Authorization: Bearer <your_jwt_token>"
-    ```
-  </Step>
-
   <Step title="Assign the item to the role">
-    Call `POST /api/v1/sidebar/:idItem/role/:idRole` using the `idItem` from step 1 and the `idRole` from step 2. No request body is needed.
+    Call `POST /api/v1/sidebar/:idItem/role/:idRole` using the `idItem` from step 1 and the `idRole` of the target role. No request body is needed.
 
     ```bash
     curl -X POST http://localhost:{PORT}/api/v1/sidebar/7/role/2 \
@@ -181,11 +177,12 @@ Follow these steps to create a sidebar item and make it visible to users of a sp
   </Step>
 
   <Step title="Verify the assignment">
-    Log in as a user with the target role (or call `GET /api/v1/sidebar` with their token) and confirm that the new item appears in the `sidebarItems` array.
+    Log in as a user with the target role and confirm that the new item appears in the `sidebarItems` array of the login response.
 
     ```bash
-    curl -X GET http://localhost:{PORT}/api/v1/sidebar \
-      -H "Authorization: Bearer <user_jwt_token>"
+    curl -X POST http://localhost:{PORT}/api/v1/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{ "email": "user@example.com", "password": "secret" }'
     ```
   </Step>
 </Steps>

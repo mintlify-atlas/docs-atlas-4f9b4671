@@ -36,12 +36,17 @@ The item was found and deleted. The response data is `null` since there is nothi
 ```json
 {
   "success": true,
+  "message": "Sidebar item eliminado exitosamente",
   "data": null
 }
 ```
 
 <ResponseField name="success" type="boolean">
   Always `true` for successful responses.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Sidebar item eliminado exitosamente"`.
 </ResponseField>
 
 <ResponseField name="data" type="null">
@@ -83,23 +88,12 @@ Returned when the authenticated user's role does not have the `DELETE /api/v1/si
 
 ### 404 — Not Found
 
-Returned when no sidebar item with the given `idItem` exists in the database.
+Returned when no sidebar item with the given `idItem` exists in the database. The existence check is performed by `findItemById` before the deletion is attempted.
 
 ```json
 {
   "success": false,
   "message": "Sidebar item con id 9 no encontrado"
-}
-```
-
-### 409 — Conflict
-
-Returned when a database-level foreign key constraint prevents deletion (`ER_ROW_IS_REFERENCED_2`). This can occur if other tables reference `sidebarItems` without a cascade rule configured.
-
-```json
-{
-  "success": false,
-  "message": "ER_ROW_IS_REFERENCED_2"
 }
 ```
 
@@ -111,7 +105,7 @@ curl -X DELETE http://localhost:{PORT}/api/v1/sidebar/9 \
 ```
 
 <Warning>
-  Deleting a sidebar item is **permanent and irreversible**. Because the `roleXItem` table uses `ON DELETE CASCADE`, every role assignment for this item is also deleted automatically. Users whose roles had this item assigned will no longer see it in their sidebar immediately — the change takes effect on their next login or `GET /api/v1/sidebar` call.
+  Deleting a sidebar item is **permanent and irreversible**. Because the `roleXItem` table uses `ON DELETE CASCADE`, every role assignment for this item is also deleted automatically. Users whose roles had this item assigned will no longer see it in their sidebar — the change takes effect at their next login, since sidebar items are delivered as part of the `POST /api/v1/auth/login` response.
 </Warning>
 
 ## Real-time Events

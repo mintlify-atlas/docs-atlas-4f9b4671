@@ -1,101 +1,111 @@
 ---
-title: "GET /api/v1/sidebar — Get Sidebar Items for Current User"
+title: "Retrieving Sidebar Items — SEAM API Guide"
 sidebarTitle: "Get Sidebar"
-description: "Returns the navigation sidebar items assigned to the authenticated user's role. Used by frontends to build dynamic, role-scoped navigation menus without a separate query."
+description: "Sidebar items are returned in the login response and fetched per role via getSidebarItems. No standalone GET /sidebar endpoint exists — learn how this works here."
 ---
 
-The `GET /api/v1/sidebar` endpoint returns the list of navigation items that belong to the authenticated user's role. Rather than accepting a role ID as a query parameter, the endpoint reads `roleId` directly from the decoded JWT payload (`req.user.roleId`), so the caller never needs to specify which role to query — the token carries that context automatically. This makes the endpoint ideal for bootstrapping a frontend navigation menu right after session restore.
+The SEAM API does **not** expose a standalone `GET /api/v1/sidebar` endpoint. Instead, sidebar navigation items are delivered to the client as part of the login response and are resolved server-side using `getSidebarItems`, which queries the `sidebarItems` table filtered by the authenticated user's `roleId`. This page explains where sidebar data comes from, what it contains, and how the role-based filtering works.
 
-## Authentication
+## How sidebar items are delivered
 
-This endpoint requires a valid JWT passed as a Bearer token in the `Authorization` header. No additional role-based permission is needed beyond being authenticated — every logged-in user can fetch their own sidebar.
-
-```
-Authorization: Bearer <token>
-```
-
-## Request
-
-**Method:** `GET`  
-**Path:** `/api/v1/sidebar`
-
-This endpoint accepts no request body and no query parameters. The role is resolved entirely from the token.
-
-## Response
-
-### 200 — Success
-
-Returns an array of sidebar navigation items assigned to the authenticated user's role, ordered by `idItem` ascending.
+When a user authenticates via `POST /api/v1/auth/login`, the server resolves their `roleId` from the `users` table, then calls `getSidebarItems(roleId)` internally. The result is embedded directly in the login response under the `sidebarItems` key — no additional request is needed.
 
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "idItem": 1,
-      "nameItem": "Dashboard",
-      "iconItem": "bi bi-speedometer2",
-      "route": "/dashboard"
+  "data": {
+    "token": "<jwt>",
+    "user": {
+      "idUser": 12,
+      "full_name": "Ana García",
+      "email": "ana@example.com",
+      "roleId": 2,
+      "roleName": "Manager"
     },
-    {
-      "idItem": 3,
-      "nameItem": "Users",
-      "iconItem": "bi bi-people",
-      "route": "/users"
-    }
-  ]
+    "sidebarItems": [
+      {
+        "idItem": 1,
+        "nameItem": "Dashboard",
+        "iconItem": "bi bi-speedometer2",
+        "route": "/dashboard"
+      },
+      {
+        "idItem": 3,
+        "nameItem": "Reports",
+        "iconItem": "bi bi-bar-chart",
+        "route": "/reports"
+      }
+    ]
+  }
 }
 ```
 
-<ResponseField name="success" type="boolean">
-  Always `true` for successful responses.
-</ResponseField>
+The client should store `sidebarItems` from the login response and use it to build the navigation menu without making a subsequent request.
 
-<ResponseField name="data" type="array">
-  Array of sidebar item objects assigned to the authenticated user's role. Empty array `[]` if the role has no items assigned.
+## What `getSidebarItems` queries
 
-  <ResponseField name="data[].idItem" type="integer">
-    Unique numeric identifier of the sidebar item.
+`AuthRepository.getSidebarItems(roleId)` executes the following SQL:
+
+```sql
+SELECT s.idItem, s.nameItem, s.iconItem, s.route
+FROM sidebarItems s
+INNER JOIN roleXItem ri ON s.idItem = ri.itemId
+WHERE ri.roleId = ?
+ORDER BY s.idItem
+```
+
+Only items linked to the user's role via the `roleXItem` pivot table are returned. Items that exist in `sidebarItems` but have not been assigned to the role are excluded. The results are ordered by `idItem` ascending.
+
+## Response fields
+
+<ResponseField name="sidebarItems" type="array">
+  Array of sidebar navigation item objects assigned to the user's role. Returned inside `data` in the login response. Empty array `[]` if the role has no items assigned.
+
+  <ResponseField name="sidebarItems[].idItem" type="integer">
+    Unique numeric identifier of the sidebar item, sourced from the `sidebarItems` table primary key.
   </ResponseField>
 
-  <ResponseField name="data[].nameItem" type="string">
-    Display label shown in the navigation menu (e.g. `"Dashboard"`, `"Users"`).
+  <ResponseField name="sidebarItems[].nameItem" type="string">
+    Display label shown in the navigation menu (e.g. `"Dashboard"`, `"Reports"`).
   </ResponseField>
 
-  <ResponseField name="data[].iconItem" type="string | null">
+  <ResponseField name="sidebarItems[].iconItem" type="string | null">
     Icon identifier for the navigation item (e.g. a CSS class like `"bi bi-speedometer2"`). `null` if no icon was set when the item was created.
   </ResponseField>
 
-  <ResponseField name="data[].route" type="string | null">
+  <ResponseField name="sidebarItems[].route" type="string | null">
     Frontend route path the item links to (e.g. `"/dashboard"`). `null` if no route was set.
   </ResponseField>
 </ResponseField>
 
-### 401 — Unauthorized
+## Role-scoped visibility
 
-Returned when the `Authorization` header is missing, the token is malformed, or the token has expired.
+Each user's sidebar is determined entirely by their `roleId`. Two users with different roles will receive different `sidebarItems` arrays even though they call the same login endpoint. This is enforced by the `INNER JOIN roleXItem` — items not assigned to a role are never included.
 
-```json
-{
-  "success": false,
-  "message": "Token requerido"
-}
-```
+To make a sidebar item visible to users of a specific role, use `POST /api/v1/sidebar/:idItem/role/:idRole` to create the assignment in `roleXItem`. To create the item itself first, use `POST /api/v1/sidebar`.
 
-```json
-{
-  "success": false,
-  "message": "Token inválido o expirado"
-}
-```
+## Typical client workflow
 
-## Example
+<Steps>
+  <Step title="Authenticate">
+    Call `POST /api/v1/auth/login` with valid credentials. The `sidebarItems` array in the response contains all navigation items for the authenticated user's role.
 
-```bash
-curl -X GET http://localhost:{PORT}/api/v1/sidebar \
-  -H "Authorization: Bearer <your_jwt_token>"
-```
+    ```bash
+    curl -X POST http://localhost:{PORT}/api/v1/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{ "email": "ana@example.com", "password": "secret" }'
+    ```
+  </Step>
+
+  <Step title="Store and render">
+    Persist `sidebarItems` from the response (e.g. in application state or local storage alongside the token) and use it to render the navigation menu. Each item provides `nameItem` for the label, `iconItem` for an optional icon, and `route` for the target path.
+  </Step>
+
+  <Step title="Re-authenticate to refresh">
+    Because there is no standalone GET endpoint, sidebar items are refreshed by performing a new login. If your application needs to refresh navigation without a full re-login cycle, contact the API maintainer about adding a dedicated sidebar retrieval route.
+  </Step>
+</Steps>
 
 <Note>
-  Sidebar items are also returned automatically in the login response (`POST /api/v1/auth/login`) under the `sidebarItems` key, alongside the token and user data. A separate call to this endpoint after login is typically not needed — it is most useful when restoring a session from a stored token (e.g. on page reload) without going through login again.
+  If you need to inspect which items are assigned to a role without going through login, use the database directly or query the `roleXItem` and `sidebarItems` tables. A dedicated management endpoint for listing items does not currently exist in `sidebar.routes.js`.
 </Note>

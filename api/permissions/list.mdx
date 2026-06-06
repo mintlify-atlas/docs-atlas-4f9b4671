@@ -1,10 +1,10 @@
 ---
-title: "GET /api/v1/permission — List All Permissions"
+title: "List All Registered Permissions — GET /api/v1/permission"
 sidebarTitle: "List Permissions"
-description: "Returns all registered permissions in the system. Requires JWT authentication only. Use this endpoint to discover available nameUri values for role assignment."
+description: "Returns all registered permissions ordered by ID. Requires JWT only. Use to discover available nameUri values before assigning or registering a permission."
 ---
 
-Returns every permission registered in the system, ordered by `idPermission`. No role permission check is applied — any authenticated user can call this endpoint. This is intentional so that administrators can browse available permissions when building role configurations.
+Returns every permission registered in the system, ordered ascending by `idPermission`. No role-permission check is applied — any authenticated user can call this endpoint. This is intentional so that administrators can browse available permissions when building role configurations.
 
 ## Authentication
 
@@ -32,7 +32,7 @@ Returns all permission records in ascending `idPermission` order.
 </ResponseField>
 
 <ResponseField name="message" type="string">
-  Human-readable status message.
+  Human-readable status message. Value: `"Permisos registados obtenidos"`.
 </ResponseField>
 
 <ResponseField name="data" type="array">
@@ -101,3 +101,7 @@ curl -X GET http://localhost:3000/api/v1/permission \
 ## Socket.IO Events
 
 This is a read-only endpoint. A `data:changed` broadcast is **not** emitted. The requesting client receives `operation:progress` events for the `permissions:fetchAll` operation on their own socket only.
+
+| Event | Target | Operation | Status sequence |
+|-------|--------|-----------|-----------------|
+| `operation:progress` | Requesting socket | `permissions:fetchAll` | `start` → `success` |
